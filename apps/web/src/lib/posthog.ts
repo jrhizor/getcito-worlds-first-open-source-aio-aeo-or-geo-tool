@@ -1,8 +1,13 @@
-export function initPostHog(): void {}
-export function identifyUser(): void {}
-export function trackEvent(): void {}
-export function trackForm(): void {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function initPostHog(...args: any[]): void {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function identifyUser(...args: any[]): void {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function trackEvent(...args: any[]): void {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function trackForm(...args: any[]): void {}
 export function resetPostHog(): void {}
 export function optIn(): void {}
 export function optOut(): void {}
-export function setPersonProperties(): void {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setPersonProperties(...args: any[]): void {}

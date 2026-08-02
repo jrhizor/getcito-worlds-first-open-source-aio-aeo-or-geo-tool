@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
+import { Textarea } from "@workspace/ui/components/textarea";
 import { Loader2, AlertCircle, Play, Rocket } from "lucide-react";
 import { TagsInput } from "@workspace/ui/components/tags-input";
 import { Separator } from "@workspace/ui/components/separator";
@@ -433,10 +434,12 @@ export default function PromptWizard({ onComplete }: PromptWizardProps) {
 				<div className="space-y-3 mt-3">
 					<div>
 						<p className="text-xs text-muted-foreground">Short description</p>
-						<Input
+						<Textarea
 							value={data.shortDescription || ""}
 							onChange={(e) => updateShortDescription(e.target.value)}
 							placeholder="Brief summary of the brand..."
+							rows={3}
+							className="resize-none"
 						/>
 					</div>
 					<div>
