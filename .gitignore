@@ -77,12 +77,9 @@ getcito.yaml
 e2e/artifacts
 
 # retroactive cleanup
-# Anchored to the repo root: an unanchored `features/` also matches source
-# directories like apps/www/src/routes/ai-visibility-tools/features/.
 /features/
 .agents/
 .cursor/
-apps/www/dist/
 apps/web/storybook-static/
 
 .claude/settings.local.json
@@ -95,3 +92,7 @@ REBRANDING_PLAN.md
 # CLI is being ignored for now until it is published
 apps/cli/
 docker-compose.whitelabel.yml 
+# transient GitHub Release notes body (scripts/gh-release.mjs)
+.release-notes.md
+
+.claude/skills/add-changeset/

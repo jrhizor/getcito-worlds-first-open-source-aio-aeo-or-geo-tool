@@ -6,7 +6,7 @@
 
 Elmo is an open-source AI visibility tracking platform (Answer Engine Optimization). It is a **pnpm monorepo** using **Turborepo**, **Node.js 24**, and **PostgreSQL 16**.
 
-Key apps: `apps/web` (TanStack Start dashboard, port 3000), `apps/worker` (pg-boss background jobs), `apps/www` (marketing site, port 3001), `apps/cli` (deployment CLI).
+Key apps: `apps/web` (TanStack Start dashboard, port 3000), `apps/worker` (pg-boss background jobs), `apps/cli` (deployment CLI).
 
 ### Running services
 

@@ -23,11 +23,6 @@ describe("ENV_REGISTRY", () => {
 		).toEqual([]);
 	});
 
-	it("never requires www-only vars in the product", () => {
-		const wrong = ENV_REGISTRY.filter((spec) => spec.wwwOnly && spec.requiredBy !== "optional");
-		expect(wrong.map((spec) => spec.name)).toEqual([]);
-	});
-
 	it("declares a provider id exactly on dynamic-scrape-targets entries", () => {
 		const wrong = ENV_REGISTRY.filter(
 			(spec) => (spec.requiredBy === "dynamic-scrape-targets") !== (spec.provider !== undefined),
@@ -57,7 +52,6 @@ describe("ENV_REGISTRY", () => {
 		expect(processEnv, "could not find NodeJS.ProcessEnv in env.d.ts").toBeDefined();
 
 		const undeclared = ENV_REGISTRY.filter((spec) => {
-			if (spec.wwwOnly) return false;
 			const block = spec.scope === "client" ? importMetaEnv! : processEnv!;
 			return !new RegExp(`readonly ${spec.name}\\??:`).test(block);
 		});

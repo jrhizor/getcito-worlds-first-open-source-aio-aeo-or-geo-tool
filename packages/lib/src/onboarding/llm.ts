@@ -47,7 +47,7 @@ export type ResearchProviderId = (typeof RESEARCH_PROVIDER_PREFERENCE)[number];
 
 const ONBOARDING_LLM_TARGET_HELP =
 	"Set ONBOARDING_LLM_TARGET (e.g. claude:anthropic-api) " +
-	"or configure ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / MISTRAL_API_KEY.";
+	"or configure AZURE_OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / MISTRAL_API_KEY.";
 
 /**
  * Pick which direct-API provider the onboarding flow should use.
@@ -62,7 +62,7 @@ const ONBOARDING_LLM_TARGET_HELP =
  * to override the model via env or option. Operators who want a different
  * model edit the provider's `DEFAULT_RESEARCH_MODEL` constant in source.
  */
-export function resolveResearchProvider(env: Record<string, string | undefined> = process.env): Provider {
+export function resolveResearchProvider(env: Record<string, string | undefined> = process.env): { provider: Provider; version?: string } {
 	const explicit = env.ONBOARDING_LLM_TARGET?.trim();
 	if (explicit) {
 		const [parsed] = parseScrapeTargets(explicit);
@@ -78,14 +78,24 @@ export function resolveResearchProvider(env: Record<string, string | undefined> 
 				`ONBOARDING_LLM_TARGET points at "${parsed.provider}", which does not support structured research. ${ONBOARDING_LLM_TARGET_HELP}`,
 			);
 		}
-		return provider;
+		return { provider, version: parsed.version || parsed.model };
 	}
 
 	for (const id of RESEARCH_PROVIDER_PREFERENCE) {
 		const provider = getProvider(id);
 		if (!provider.isConfigured()) continue;
 		if (!provider.runStructuredResearch) continue;
-		return provider;
+		
+		let version: string | undefined;
+		try {
+			const targets = parseScrapeTargets(process.env.SCRAPE_TARGETS);
+			const matching = targets.find((t) => t.provider === id) || targets[0];
+			if (matching) version = matching.version || matching.model;
+		} catch {
+			// ignore
+		}
+		
+		return { provider, version };
 	}
 
 	throw new Error(`Onboarding requires at least one direct LLM API provider. ${ONBOARDING_LLM_TARGET_HELP}`);
@@ -97,11 +107,11 @@ export function resolveResearchProvider(env: Record<string, string | undefined> 
  * provider's `runStructuredResearch` impl — we just pick the provider.
  */
 export async function runStructuredResearchPrompt<T>(prompt: string, schema: z.ZodType<T>): Promise<T> {
-	const provider = resolveResearchProvider();
+	const { provider, version } = resolveResearchProvider();
 	if (!provider.runStructuredResearch) {
 		throw new Error(`Provider "${provider.id}" does not implement structured research`);
 	}
-	const result = await provider.runStructuredResearch({ prompt, schema });
+	const result = await provider.runStructuredResearch({ prompt, schema, version });
 	return result.object;
 }
 
@@ -118,9 +128,9 @@ export async function runStructuredCompletionPrompt<T>(
 	prompt: string,
 	schema: z.ZodType<T>,
 ): Promise<StructuredResearchResult<T>> {
-	const provider = resolveResearchProvider();
+	const { provider, version } = resolveResearchProvider();
 	if (!provider.runStructuredResearch) {
 		throw new Error(`Provider "${provider.id}" does not implement structured research`);
 	}
-	return provider.runStructuredResearch({ prompt, schema, webSearch: false });
+	return provider.runStructuredResearch({ prompt, schema, version, webSearch: false });
 }

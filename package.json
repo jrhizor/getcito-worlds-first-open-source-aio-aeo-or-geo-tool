@@ -1,6 +1,6 @@
 {
   "name": "getcito",
-  "version": "0.2.13",
+  "version": "9.0",
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@11.10.0",
@@ -20,6 +20,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-root-version.mjs",
     "release": "pnpm build && changeset publish",
+    "release:github": "node scripts/gh-release.mjs",
     "test:e2e": "pnpm --filter e2e test:e2e",
     "test:e2e-local": "bash e2e/run-local.sh",
     "license-check": "node scripts/check-licenses.mjs"

@@ -46,7 +46,24 @@ export const getReportByIdFn = createServerFn({ method: "GET" })
 		const result = await db.select().from(reports).where(eq(reports.id, data.reportId)).limit(1);
 		if (result.length === 0) throw new Error("Report not found");
 		const report = result[0];
-		return { ...report, rawOutput: report.rawOutput as {} | null };
+
+		// Strip massive rawOutput from promptRuns before serialization to prevent V8 memory crash (HTTP 502)
+		let parsedData: any = report.rawOutput;
+		if (typeof parsedData === "string") {
+			try { parsedData = JSON.parse(parsedData); } catch {}
+		}
+		
+		if (parsedData && parsedData.promptRuns) {
+			for (const pr of parsedData.promptRuns) {
+				if (pr.runs) {
+					for (const r of pr.runs) {
+						delete r.rawOutput;
+					}
+				}
+			}
+		}
+
+		return { ...report, rawOutput: parsedData };
 	});
 
 /**
@@ -58,6 +75,9 @@ export const createReportFn = createServerFn({ method: "POST" })
 			brandName: z.string().min(1),
 			brandWebsite: z.string().url(),
 			manualPrompts: z.string().optional(),
+			manualCompetitors: z.string().optional(),
+			brandId: z.string().optional(),
+			useExistingData: z.boolean().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
@@ -72,6 +92,23 @@ export const createReportFn = createServerFn({ method: "POST" })
 					.map((line) => line.trim())
 					.filter((line) => line.length > 0),
 			);
+		}
+
+		// Parse manual competitors
+		const parsedManualCompetitors: { name: string; domain: string }[] = [];
+		if (data.manualCompetitors?.trim()) {
+			const lines = data.manualCompetitors.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+			for (const line of lines) {
+				const parts = line.split(",").map(p => p.trim());
+				if (parts.length >= 2) {
+					parsedManualCompetitors.push({ name: parts[0], domain: parts[1] });
+				} else if (parts.length === 1 && parts[0].includes(".")) {
+					// Fallback if they just typed "example.com"
+					const domain = parts[0];
+					const name = domain.split(".")[0];
+					parsedManualCompetitors.push({ name, domain });
+				}
+			}
 		}
 
 		// Create report
@@ -92,6 +129,9 @@ export const createReportFn = createServerFn({ method: "POST" })
 				createdReport.brandName,
 				createdReport.brandWebsite,
 				parsedManualPrompts.length > 0 ? parsedManualPrompts : undefined,
+				data.brandId,
+				data.useExistingData,
+				parsedManualCompetitors.length > 0 ? parsedManualCompetitors : undefined,
 			);
 			if (!success) throw new Error("Failed to send report job");
 		} catch (error) {

@@ -251,13 +251,16 @@ export async function sendReportJob(
 	brandName: string,
 	brandWebsite: string,
 	manualPrompts?: string[],
+	brandId?: string,
+	useExistingData?: boolean,
+	manualCompetitors?: { name: string; domain: string }[],
 ): Promise<boolean> {
 	try {
 		const boss = await getBoss();
 
 		await boss.send(
 			"generate-report",
-			{ reportId, brandName, brandWebsite, manualPrompts },
+			{ reportId, brandName, brandWebsite, manualPrompts, brandId, useExistingData, manualCompetitors },
 			{
 				retryLimit: 3,
 				retryDelay: 60,

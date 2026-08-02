@@ -4,7 +4,7 @@
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { db } from "@workspace/lib/db/db";
 import { member, organization, user, brands } from "@workspace/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { auth } from "./server";
 
 type SessionLike = { user: { id: string; [key: string]: unknown }; session?: unknown };
@@ -77,7 +77,7 @@ export async function listUserOrganizations(
 		return db
 			.select({
 				id: organization.id,
-				name: organization.name,
+				name: sql<string>`COALESCE(${brands.name}, ${organization.name})`.as("name"),
 				targetMarket: brands.targetMarket,
 				author: user.name,
 			})
@@ -92,7 +92,7 @@ export async function listUserOrganizations(
 	return db
 		.select({
 			id: organization.id,
-			name: organization.name,
+			name: sql<string>`COALESCE(${brands.name}, ${organization.name})`.as("name"),
 			targetMarket: brands.targetMarket,
 		})
 		.from(member)

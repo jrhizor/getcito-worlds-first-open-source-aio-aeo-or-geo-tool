@@ -136,15 +136,19 @@ export const brightdata: Provider = {
 			const defaultMarket = options?.targetMarket ?? "US";
 			const defaultLanguage = options?.targetLanguage ?? "en";
 
+			const finalPrompt = (model !== "google-ai-mode" && model !== "google-ai-overview")
+				? `${prompt}\nPlease provide your response in ${defaultLanguage}.`
+				: prompt;
+
 			let payloadData: any = {
 				url: BD_BASE_URL[model] ?? "",
-				prompt,
+				prompt: finalPrompt,
 				index: 1,
 				...(model === "chatgpt" ? { web_search: options?.webSearch ?? false } : {}),
 				country: getCountryCode(defaultMarket) ?? defaultMarket,
 				...(model === "google-ai-mode"
 					? { hl: getLanguageCode(defaultLanguage) ?? "en" }
-					: { additional_prompt: `Please provide your response in ${defaultLanguage}.` }),
+					: {}),
 			};
 
 			if (model === "google-ai-overview") {

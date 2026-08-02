@@ -20,10 +20,10 @@ import { fileURLToPath } from "node:url";
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const rootPkgPath = join(rootDir, "package.json");
 
-// The published CLI is part of the fixed version group, so its version is the
+// @workspace/lib is part of the fixed version group, so its version is the
 // canonical release version shared by every workspace package.
 const sourceVersion = JSON.parse(
-  readFileSync(join(rootDir, "apps/cli/package.json"), "utf8"),
+  readFileSync(join(rootDir, "packages/lib/package.json"), "utf8"),
 ).version;
 
 const rootContent = readFileSync(rootPkgPath, "utf8");

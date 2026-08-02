@@ -65,7 +65,7 @@ export const getAdminStatsFn = createServerFn({ method: "GET" }).handler(async (
 	const [
 		allBrands,
 		brandsOverTime,
-		promptsOverTime,
+		promptsData,
 		runsOverTimeData,
 		brandRunStats,
 		activeBrandsData,
@@ -167,9 +167,13 @@ export const getAdminStatsFn = createServerFn({ method: "GET" }).handler(async (
 				promptsRemovedLast7Days: recentPromptCounts[0]?.removed7Days || 0,
 				promptsAddedLast30Days: recentPromptCounts[0]?.added30Days || 0,
 				promptsRemovedLast30Days: recentPromptCounts[0]?.removed30Days || 0,
+				enabledModels: brand.enabledModels,
 			};
 		}),
 	);
+
+	const configs = parseScrapeTargets(process.env.SCRAPE_TARGETS);
+	const availableModels = configs.map(c => c.model);
 
 	return {
 		brands: brandStats,
@@ -178,11 +182,16 @@ export const getAdminStatsFn = createServerFn({ method: "GET" }).handler(async (
 			date: row.date,
 			count: row.count,
 		})),
-		promptsOverTime,
+		promptsOverTime: promptsData.map((row) => ({
+			date: row.date,
+			enabled: row.enabled,
+			disabled: row.disabled,
+		})),
 		runsOverTime: runsOverTimeData.map((row) => ({
 			date: row.date,
 			count: row.count,
 		})),
+		availableModels,
 	};
 });
 
@@ -202,6 +211,7 @@ export const updateDelayOverrideFn = createServerFn({ method: "POST" })
 	)
 	.handler(async ({ data }) => {
 		await requireAdmin();
+
 		const result = await db
 			.update(brands)
 			.set({ delayOverrideHours: data.delayOverrideHours, updatedAt: new Date() })
@@ -209,6 +219,27 @@ export const updateDelayOverrideFn = createServerFn({ method: "POST" })
 			.returning();
 		if (!result[0]) throw new Error("Brand not found");
 		return result[0];
+	});
+
+/**
+ * Updates the enabled models for a brand.
+ */
+export const updateEnabledModelsFn = createServerFn({ method: "POST" })
+	.validator(
+		z.object({
+			brandId: z.string(),
+			enabledModels: z.array(z.string()).nullable(),
+		}),
+	)
+	.handler(async ({ data }) => {
+		await requireAdmin();
+
+		await db
+			.update(brands)
+			.set({ enabledModels: data.enabledModels, updatedAt: new Date() })
+			.where(eq(brands.id, data.brandId));
+
+		return { success: true };
 	});
 
 // ============================================================================

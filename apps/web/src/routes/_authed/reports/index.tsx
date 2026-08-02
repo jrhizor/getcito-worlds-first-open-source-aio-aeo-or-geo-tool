@@ -18,6 +18,7 @@ import { Label } from "@workspace/ui/components/label";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { Card, CardContent } from "@workspace/ui/components/card";
 import { Badge } from "@workspace/ui/components/badge";
+import { Checkbox } from "@workspace/ui/components/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
 import { trackEvent } from "@/lib/posthog";
 import { ExternalLink, Trash2 } from "lucide-react";
@@ -76,9 +77,12 @@ function ReportsPage() {
 	const { brands, isLoading: brandsLoading } = useBrands();
 
 	const [formData, setFormData] = useState({
+		brandId: "",
 		brandName: "",
 		brandWebsite: "",
 		manualPrompts: "",
+		manualCompetitors: "",
+		useExistingData: false,
 	});
 	const [selectedBrandId, setSelectedBrandId] = useState<string>("custom");
 	const [submitError, setSubmitError] = useState("");
@@ -89,7 +93,7 @@ function ReportsPage() {
 		onSuccess: (_data, variables) => {
 			trackEvent("report_created", { has_manual_prompts: Boolean(variables.manualPrompts) });
 			setSuccess("Report request submitted successfully!");
-			setFormData({ brandName: "", brandWebsite: "", manualPrompts: "" });
+			setFormData({ brandId: "", brandName: "", brandWebsite: "", manualPrompts: "", manualCompetitors: "", useExistingData: false });
 			setSelectedBrandId("custom");
 			queryClient.invalidateQueries({ queryKey: ["reports"] });
 		},
@@ -160,15 +164,20 @@ function ReportsPage() {
 													onValueChange={(val) => {
 														setSelectedBrandId(val);
 														if (val === "custom") {
-															setFormData({ brandName: "", brandWebsite: "", manualPrompts: "" });
+															setFormData({ brandId: "", brandName: "", brandWebsite: "", manualPrompts: "", manualCompetitors: "", useExistingData: false });
 														} else {
 															const brand = brands?.find(b => b.id === val);
 															if (brand) {
 																const activePrompts = brand.prompts?.filter(p => p.enabled).map(p => p.value).join("\n") || "";
+																const existingCompetitors = brand.competitors?.filter(c => c.domains && c.domains.length > 0).map(c => `${c.name}, ${c.domains[0]}`).join("\n") || "";
+																
 																setFormData({
+																	brandId: brand.id,
 																	brandName: brand.name,
 																	brandWebsite: brand.website || "",
-																	manualPrompts: activePrompts
+																	manualPrompts: activePrompts,
+																	manualCompetitors: existingCompetitors,
+																	useExistingData: true
 																});
 															}
 														}
@@ -274,6 +283,81 @@ function ReportsPage() {
 													)}
 												</p>
 											</div>
+
+											<div className="space-y-2">
+												<div className="flex items-center justify-between">
+													<Label htmlFor="manualCompetitors">
+														Manual Competitors{" "}
+														<span className="text-muted-foreground font-normal">(Optional)</span>
+													</Label>
+													{formData.manualCompetitors && (
+														<Button 
+															type="button" 
+															variant="outline" 
+															size="sm"
+															className="h-7 text-xs"
+															onClick={() => setFormData({ ...formData, manualCompetitors: "" })}
+														>
+															Clear
+														</Button>
+													)}
+												</div>
+												<Textarea
+													id="manualCompetitors"
+													placeholder={`Example:\nAcme Corp, acme.com\nGlobex, globex.com`}
+													value={formData.manualCompetitors}
+													onChange={(e) =>
+														setFormData({ ...formData, manualCompetitors: e.target.value })
+													}
+													disabled={createMutation.isPending || formData.useExistingData}
+													rows={3}
+													className="font-mono text-sm"
+												/>
+												<p className="text-xs text-muted-foreground">
+													{formData.manualCompetitors.trim() ? (
+														<>
+															Adding{" "}
+															{
+																formData.manualCompetitors
+																	.trim()
+																	.split("\n")
+																	.filter((line) => line.trim()).length
+															}{" "}
+															manual competitor
+															{formData.manualCompetitors
+																.trim()
+																.split("\n")
+																.filter((line) => line.trim()).length !== 1
+																? "s"
+																: ""}
+															. {formData.brandId ? "These will be combined with any existing database competitors." : "These will replace AI generation."}
+														</>
+													) : (
+														"Format: 'Name, domain.com' (one per line). Leave empty to use AI/database competitors."
+													)}
+												</p>
+											</div>
+											
+											{formData.brandId && (
+												<div className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm">
+													<Checkbox
+														id="useExistingData"
+														checked={formData.useExistingData}
+														onCheckedChange={(checked) =>
+															setFormData({ ...formData, useExistingData: !!checked })
+														}
+													/>
+													<div className="space-y-1 leading-none">
+														<Label htmlFor="useExistingData" className="cursor-pointer">
+															Use existing database evaluations
+														</Label>
+														<p className="text-sm text-muted-foreground">
+															Skip AI prompt testing and compile the report instantly using the latest existing data for this brand. 
+															This is free and does not use LLM tokens.
+														</p>
+													</div>
+												</div>
+											)}
 
 											{submitError && (
 												<p className="text-sm text-destructive">{submitError}</p>

@@ -36,7 +36,7 @@ export interface TagsInputProps {
   className?: string;
 }
 
-const PASTE_SPLITTER = /[\n#?=&\t,./-]+/;
+const PASTE_SPLITTER = /[\n\t,]+/;
 
 export function TagsInput({
   value,

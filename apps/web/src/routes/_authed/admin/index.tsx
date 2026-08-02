@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
+import { Checkbox } from "@workspace/ui/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -23,7 +24,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@workspace/ui/components/chart";
 import { Settings, TrendingUp, TrendingDown } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts";
-import { getAdminStatsFn, updateDelayOverrideFn } from "@/server/admin";
+import { getAdminStatsFn, updateDelayOverrideFn, updateEnabledModelsFn } from "@/server/admin";
 
 interface BrandStats {
 	id: string;
@@ -45,6 +46,7 @@ interface BrandStats {
 	promptsRemovedLast7Days: number;
 	promptsAddedLast30Days: number;
 	promptsRemovedLast30Days: number;
+	enabledModels: string[] | null;
 }
 
 function useDefaultDelayHours(): number {
@@ -178,6 +180,113 @@ function DelayOverrideDialog({ brand, onUpdate }: { brand: BrandStats; onUpdate:
 	);
 }
 
+function EnabledModelsDialog({ brand, availableModels, onUpdate }: { brand: BrandStats, availableModels: string[], onUpdate: () => void }) {
+	const [open, setOpen] = useState(false);
+	const [isUpdating, setIsUpdating] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
+	const [useGlobal, setUseGlobal] = useState(true);
+
+	useEffect(() => {
+		if (open) {
+			setError(null);
+			if (brand.enabledModels === null || brand.enabledModels === undefined) {
+				setUseGlobal(true);
+				setSelectedModels(new Set(availableModels));
+			} else {
+				setUseGlobal(false);
+				setSelectedModels(new Set(brand.enabledModels));
+			}
+		}
+	}, [open, brand, availableModels]);
+
+	const handleToggleModel = (model: string) => {
+		const next = new Set(selectedModels);
+		if (next.has(model)) {
+			next.delete(model);
+		} else {
+			next.add(model);
+		}
+		setSelectedModels(next);
+	};
+
+	const handleUpdate = async () => {
+		setIsUpdating(true);
+		setError(null);
+		try {
+			await updateEnabledModelsFn({
+				data: {
+					brandId: brand.id,
+					enabledModels: useGlobal ? null : Array.from(selectedModels),
+				},
+			});
+			onUpdate();
+			setOpen(false);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to update models");
+		} finally {
+			setIsUpdating(false);
+		}
+	};
+
+	return (
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogTrigger asChild>
+				<Button variant="outline" size="sm" className="cursor-pointer">LLMs</Button>
+			</DialogTrigger>
+			<DialogContent className="max-w-md">
+				<DialogHeader>
+					<DialogTitle>Configure LLMs for {brand.name}</DialogTitle>
+					<DialogDescription>Select which AI models should evaluate this brand.</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4 py-4">
+					<div className="flex items-center space-x-2">
+						<Checkbox 
+							id="use-global" 
+							checked={useGlobal} 
+							onCheckedChange={(c) => {
+								setUseGlobal(!!c);
+								if (c) {
+									setSelectedModels(new Set(availableModels));
+								}
+							}} 
+						/>
+						<Label htmlFor="use-global">Use global default ({availableModels.length} models)</Label>
+					</div>
+
+					<div className="space-y-2 border rounded-md p-4">
+						<h4 className="text-sm font-medium mb-3">Available Models</h4>
+						{availableModels.length === 0 ? (
+							<p className="text-sm text-muted-foreground">No models configured globally.</p>
+						) : (
+							availableModels.map((model) => (
+								<div key={model} className="flex items-center space-x-2">
+									<Checkbox 
+										id={`model-${model}`} 
+										checked={useGlobal ? true : selectedModels.has(model)}
+										disabled={useGlobal}
+										onCheckedChange={() => handleToggleModel(model)}
+									/>
+									<Label htmlFor={`model-${model}`} className={useGlobal ? "text-muted-foreground" : ""}>
+										{model}
+									</Label>
+								</div>
+							))
+						)}
+					</div>
+					{error && <p className="text-sm text-destructive">{error}</p>}
+				</div>
+				<DialogFooter>
+					<div className="flex gap-2 ml-auto">
+						<Button variant="outline" onClick={() => setOpen(false)} disabled={isUpdating} className="cursor-pointer">Cancel</Button>
+						<Button onClick={handleUpdate} disabled={isUpdating} className="cursor-pointer">{isUpdating ? "Saving..." : "Save"}</Button>
+					</div>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 function ActivityIndicator({ added, removed }: { added: number; removed: number }) {
 	if (added === 0 && removed === 0) {
 		return <div className="flex items-center text-muted-foreground"><span className="w-4 mr-1" /><span>0</span></div>;
@@ -210,6 +319,7 @@ function AdminDashboard() {
 	const [activeBrandsOverTime, setActiveBrandsOverTime] = useState<{ date: string; count: number }[]>([]);
 	const [promptsOverTime, setPromptsOverTime] = useState<{ date: string; enabled: number; disabled: number }[]>([]);
 	const [runsOverTime, setRunsOverTime] = useState<{ date: string; count: number }[]>([]);
+	const [availableModels, setAvailableModels] = useState<string[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -221,6 +331,7 @@ function AdminDashboard() {
 			setActiveBrandsOverTime(data.activeBrandsOverTime || []);
 			setPromptsOverTime(data.promptsOverTime || []);
 			setRunsOverTime(data.runsOverTime || []);
+			setAvailableModels(data.availableModels || []);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "An error occurred");
 		} finally {
@@ -424,7 +535,12 @@ function AdminDashboard() {
 													<span className="text-xs text-muted-foreground">{brand.delayOverrideHours !== null ? "Custom" : "Default"}</span>
 												</div>
 											</TableCell>
-											<TableCell><DelayOverrideDialog brand={brand} onUpdate={fetchBrandStats} /></TableCell>
+											<TableCell>
+												<div className="flex gap-2">
+													<DelayOverrideDialog brand={brand} onUpdate={fetchBrandStats} />
+													<EnabledModelsDialog brand={brand} availableModels={availableModels} onUpdate={fetchBrandStats} />
+												</div>
+											</TableCell>
 										</TableRow>
 									);
 								})}
