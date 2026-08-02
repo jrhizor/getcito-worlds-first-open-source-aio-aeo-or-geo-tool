@@ -29,12 +29,6 @@ export interface EnvVarSpec {
 	requiredBy: DeploymentMode[] | "dynamic-scrape-targets" | "optional";
 	/** Only for requiredBy: "dynamic-scrape-targets" — the SCRAPE_TARGETS provider id that needs this key. */
 	provider?: string;
-	/**
-	 * Set for vars read only by the marketing site (apps/www). They stay in
-	 * turbo.json globalEnv but are excluded from the apps/web env.d.ts check,
-	 * and must never be required by the product (enforced by test).
-	 */
-	wwwOnly?: boolean;
 	description: string;
 }
 
@@ -95,27 +89,6 @@ export const ENV_REGISTRY: EnvVarSpec[] = [
 		scope: "server",
 		requiredBy: ["whitelabel"],
 		description: "Auth0 Management API domain.",
-	},
-	{
-		name: "UPSTASH_REDIS_REST_URL",
-		scope: "server",
-		requiredBy: "optional",
-		wwwOnly: true,
-		description: "Upstash Redis REST URL (www caching: status, GitHub stars/releases).",
-	},
-	{
-		name: "UPSTASH_REDIS_REST_TOKEN",
-		scope: "server",
-		requiredBy: "optional",
-		wwwOnly: true,
-		description: "Upstash Redis REST token.",
-	},
-	{
-		name: "UPSTASH_REDIS_ENDPOINT",
-		scope: "server",
-		requiredBy: "optional",
-		wwwOnly: true,
-		description: "Upstash Redis endpoint.",
 	},
 	{
 		name: "DATAFORSEO_LOGIN",
@@ -297,13 +270,6 @@ export const ENV_REGISTRY: EnvVarSpec[] = [
 		scope: "client",
 		requiredBy: "optional",
 		description: "Auth0 client ID exposed to the client.",
-	},
-	{
-		name: "BLOB_READ_WRITE_TOKEN",
-		scope: "server",
-		requiredBy: "optional",
-		wwwOnly: true,
-		description: "Vercel Blob token (www competitor screenshots).",
 	},
 	{
 		name: "DBOS_SYSTEM_DATABASE_URL",

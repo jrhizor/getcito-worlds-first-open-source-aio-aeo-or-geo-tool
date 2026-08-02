@@ -314,7 +314,7 @@ export function analyzeWebQueries(
 	for (const run of runs) {
 		if (!run.webQueries) continue;
 		for (const query of run.webQueries) {
-			const normalized = query.toLowerCase().trim();
+			const normalized = (query || "").toLowerCase().trim();
 			if (!normalized || normalized.length < 3) continue;
 			if (!queryStats.has(normalized)) {
 				queryStats.set(normalized, { count: 0, brandMentions: 0 });
