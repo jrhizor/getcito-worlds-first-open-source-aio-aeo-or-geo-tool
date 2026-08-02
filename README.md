@@ -1,9 +1,9 @@
 <p align="center">
   <a href="https://github.com/ai-search-guru/getcito-worlds-first-open-source-aio-aeo-or-geo-tool">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="apps/www/public/brand/logos/getcito-logo-dark-xl.png">
-      <source media="(prefers-color-scheme: light)" srcset="apps/www/public/brand/logos/getcito-logo-xl.png">
-      <img alt="Getcito" src="apps/www/public/brand/logos/getcito-logo-dark-xl.png" width="300">
+      <source media="(prefers-color-scheme: dark)" srcset="brand/logos/getcito-logo-dark-xl.png">
+      <source media="(prefers-color-scheme: light)" srcset="brand/logos/getcito-logo-xl.png">
+      <img alt="Getcito" src="brand/logos/getcito-logo-dark-xl.png" width="300">
     </picture>
   </a>
 </p>
@@ -97,7 +97,6 @@ Try the live demo at **[demo.getcito.com](https://demo.getcito.com)** to see pro
 | Monorepo | [pnpm](https://pnpm.io/) workspaces + [Turborepo](https://turbo.build/repo) |
 | Web app | [TanStack Start](https://tanstack.com/start) / [TanStack Router](https://tanstack.com/router) + [React 19](https://react.dev/), [Vite](https://vitejs.dev/), [Nitro](https://nitro.build/) |
 | UI | [Tailwind CSS 4](https://tailwindcss.com/), [Radix UI](https://www.radix-ui.com/), [Recharts](https://recharts.org/), [Storybook](https://storybook.js.org/) |
-| Marketing / docs | TanStack Start + [Fumadocs](https://fumadocs.dev/) |
 | Background jobs | [pg-boss](https://github.com/timgit/pg-boss) |
 | Database | [PostgreSQL 16](https://www.postgresql.org/) + [Drizzle ORM](https://orm.drizzle.team/) / drizzle-kit |
 | Auth | [Better Auth](https://www.better-auth.com/) + [Auth0](https://auth0.com/) (white-label SSO) |
@@ -107,7 +106,7 @@ Try the live demo at **[demo.getcito.com](https://demo.getcito.com)** to see pro
 
 ## Architecture Overview
 
-Getcito is a pnpm/Turborepo monorepo of four apps backed by shared packages. The **web** app serves the dashboard and REST API; the **worker** runs scheduled scraping, analysis, and report jobs off a `pg-boss` queue in PostgreSQL. Scraper and LLM providers are called by the worker to collect AI answers.
+Getcito is a pnpm/Turborepo monorepo of two apps backed by shared packages. The **web** app serves the dashboard and REST API; the **worker** runs scheduled scraping, analysis, and report jobs off a `pg-boss` queue in PostgreSQL. Scraper and LLM providers are called by the worker to collect AI answers.
 
 ```mermaid
 flowchart LR
@@ -117,7 +116,6 @@ flowchart LR
     Worker[apps/worker<br/>pg-boss jobs] -->|poll queues| DB
     Worker -->|scrape AI answers| Scrapers[BrightData / Oxylabs<br/>Olostep / DataForSEO]
     Worker -->|direct LLM calls| LLM[OpenRouter / Anthropic<br/>OpenAI / Mistral]
-    WWW[apps/www<br/>marketing + docs] -.-> User
 ```
 
 **Prompt tracking lifecycle:**
@@ -145,13 +143,11 @@ Worker queues (from `apps/worker/src`): `process-prompt`, `generate-report`, `an
 getcito/
 ├── apps/
 │   ├── web/          # TanStack Start dashboard + /api/v1 (Vite dev :3000, Nitro build)
-│   ├── worker/       # pg-boss background jobs (tsx runtime)
-│   └── www/          # Marketing site + Fumadocs docs (Vite dev :3001)
+│   └── worker/       # pg-boss background jobs (tsx runtime)
 ├── packages/
 │   ├── api-spec/     # OpenAPI 3 spec (openapi.json)
 │   ├── config/       # Env registry/validation, scrape-target parsing, shared constants
 │   ├── deployment/   # Deployment-mode wiring (local / demo / whitelabel)
-│   ├── docs/         # Shared docs UI components (Fumadocs)
 │   ├── lib/          # DB (Drizzle), auth (Better Auth), providers, onboarding, DataForSEO
 │   ├── local/        # Local-mode UI/components
 │   ├── og/           # Open Graph image rendering (Takumi)
@@ -223,7 +219,7 @@ cp apps/web/.env.local apps/web/.env
 pnpm dev
 ```
 
-Dev ports: **web** → http://localhost:3000, **www** → http://localhost:3001.
+Dev port: **web** → http://localhost:3000.
 The **worker** loads env from `apps/web/.env` (via `--env-file`) and is only needed for background job processing.
 
 ## Configuration
@@ -293,21 +289,19 @@ Required-column legend: **local** = required in local mode · **wl** = required 
 | `VITE_CHART_COLORS` | client | Comma-separated chart palette override. |
 | `ADMIN_AUTH0_SUB` / `ADMIN_API_KEYS` | server | Admin access (subject claim / bearer tokens). |
 | `DEFAULT_BRAND_DOMAINS` | server | Comma-separated domains added as default brands. |
-| `UPSTASH_REDIS_REST_URL` / `_TOKEN` / `_ENDPOINT` | server | Marketing-site (www) caching. |
-| `BLOB_READ_WRITE_TOKEN` | server | Vercel Blob token (www competitor screenshots). |
 | `DBOS_SYSTEM_DATABASE_URL` | server | Override for the DBOS system database URL. |
 
 ## Usage
 
 ```bash
-pnpm dev      # start all dev servers (web :3000, www :3001) via Turborepo
+pnpm dev      # start all dev servers (web :3000) via Turborepo
 pnpm build    # build all apps/packages for production
 pnpm test     # run unit tests (Vitest)
 pnpm lint     # lint with Biome
 pnpm format   # format with Biome
 ```
 
-**Production (per app):** `pnpm build` emits a Nitro server bundle for `web` and `www`; start with `node .output/server/index.mjs` (see each app's `start` script). The worker runs via `tsx src/index.ts`.
+**Production (per app):** `pnpm build` emits a Nitro server bundle for `web`; start with `node .output/server/index.mjs` (see the app's `start` script). The worker runs via `tsx src/index.ts`.
 
 ## Available Scripts
 
@@ -333,7 +327,6 @@ pnpm format   # format with Biome
 | Package | Scripts |
 |---------|---------|
 | `apps/web` | `dev` (`vite dev --port 3000`), `build`, `start`, `preview`, `test`, `test:storybook`, `storybook`, `lint`, `check-types` |
-| `apps/www` | `dev` (`vite dev --port 3001`), `build`, `start`, `check-types` |
 | `apps/worker` | `dev` (`tsx --env-file=../web/.env src/index.ts`), `start`, `build`, `check-types` |
 | `packages/lib` | `test`, `generate:auth-schema`, `compare:onboarding` |
 
