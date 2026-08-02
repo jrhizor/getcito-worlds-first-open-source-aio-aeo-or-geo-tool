@@ -2,8 +2,18 @@ import Olostep from "olostep";
 import type { Provider, ScrapeResult, ProviderOptions, ModelConfig } from "../types";
 import type { Citation } from "../../text-extraction";
 import { WEB_QUERIES_UNAVAILABLE } from "../../constants";
+import { BRIGHTDATA_COUNTRIES } from "../../brightdata-locations";
+import { DATAFORSEO_LOCATION_LANGUAGES } from "../../location-languages";
 
-const OLOSTEP_PARSERS: Record<string, { parserId: string; urlTemplate: (q: string) => string; credits: number }> = {
+function getLanguageCode(languageName: string): string | undefined {
+	for (const languages of Object.values(DATAFORSEO_LOCATION_LANGUAGES)) {
+		const match = languages.find((l) => l.name === languageName);
+		if (match) return match.code;
+	}
+	return undefined;
+}
+
+const OLOSTEP_PARSERS: Record<string, { parserId: string; urlTemplate: (q: string, lang?: string) => string; credits: number }> = {
 	chatgpt: {
 		parserId: "@olostep/chatgpt-results",
 		urlTemplate: (q) => `https://chatgpt.com/?q=${encodeURIComponent(q)}`,
@@ -11,12 +21,12 @@ const OLOSTEP_PARSERS: Record<string, { parserId: string; urlTemplate: (q: strin
 	},
 	"google-ai-mode": {
 		parserId: "@olostep/google-aimode-results",
-		urlTemplate: (q) => `https://google.com/aimode?q=${encodeURIComponent(q)}`,
+		urlTemplate: (q, lang) => `https://google.com/aimode?q=${encodeURIComponent(q)}${lang ? `&hl=${lang}` : ''}`,
 		credits: 3,
 	},
 	"google-ai-overview": {
 		parserId: "@olostep/google-ai-overview-results",
-		urlTemplate: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+		urlTemplate: (q, lang) => `https://www.google.com/search?q=${encodeURIComponent(q)}${lang ? `&hl=${lang}` : ''}`,
 		credits: 3,
 	},
 	gemini: {
@@ -49,11 +59,17 @@ function getClient(): Olostep {
 	return _client;
 }
 
-function extractTextFromOlostep(data: any): string {
+function extractTextFromOlostep(data: any, model: string): string {
 	if (data?.result?.markdown_content) return data.result.markdown_content;
 	if (data?.answer_markdown) return data.answer_markdown;
 	if (data?.result?.text_content) return data.result.text_content;
 	if (typeof data?.answer === "string") return data.answer;
+	if (data?.result?.ai_overview) return data.result.ai_overview;
+	if (data?.ai_overview) return data.ai_overview;
+
+	if (model === "google-ai-mode" || model === "google-ai-overview") {
+		return "No Google AI mode invoked.";
+	}
 	return "No text content found in Olostep response.";
 }
 
@@ -65,7 +81,9 @@ function extractCitationsFromOlostep(data: any): Citation[] {
 		const url = typeof source === "string" ? source : source?.url;
 		if (!url || typeof url !== "string") continue;
 		try {
-			const parsed = new URL(url);
+			// Some search engines return relative URLs like "/goto?url=..." 
+			// Providing a base URL prevents new URL() from throwing ERR_INVALID_URL
+			const parsed = new URL(url, "https://google.com");
 			citations.push({
 				url,
 				title: source?.title ?? source?.label ?? undefined,
@@ -115,9 +133,6 @@ export const olostep: Provider = {
 		if (!OLOSTEP_PARSERS[config.model]) {
 			return `Olostep does not support model "${config.model}". Supported: ${Object.keys(OLOSTEP_PARSERS).join(", ")}`;
 		}
-		if (!config.webSearch) {
-			return `${config.model}:olostep requires :online — these chatbots always use web search`;
-		}
 		return null;
 	},
 
@@ -125,16 +140,30 @@ export const olostep: Provider = {
 		const parserConfig = OLOSTEP_PARSERS[model];
 		if (!parserConfig) throw new Error(`Olostep does not support model "${model}"`);
 
+		const defaultLanguage = _options?.targetLanguage ?? "en";
+		const finalPrompt = (model !== "google-ai-mode" && model !== "google-ai-overview" && defaultLanguage !== "en")
+			? `${prompt}\nPlease provide your response in ${defaultLanguage}.`
+			: prompt;
+
+		const langCode = getLanguageCode(defaultLanguage);
 		const client = getClient();
-		const url = parserConfig.urlTemplate(prompt);
+		const url = parserConfig.urlTemplate(finalPrompt, langCode);
+
+		const country = _options?.targetMarket ? BRIGHTDATA_COUNTRIES[_options.targetMarket] : undefined;
 
 		// Use batch API — the /scrapes endpoint doesn't support all parsers
 		const batch = await client.batches.create(
 			[{ url, customId: "1" }],
-			{ parser: { id: parserConfig.parserId } },
+			{
+				parser: { id: parserConfig.parserId },
+				...(country && { country })
+			},
 		);
 
-		await batch.waitTillDone({ checkEveryNSecs: 5, timeoutSeconds: 1200 });
+		await Promise.race([
+			batch.waitTillDone({ checkEveryNSecs: 5, timeoutSeconds: 300 }),
+			new Promise((_, reject) => setTimeout(() => reject(new Error(`Olostep batch waitTillDone hard timeout for ${model}`)), 310 * 1000))
+		]);
 
 		let retrieveId: string | undefined;
 		for await (const item of batch.items()) {
@@ -142,7 +171,10 @@ export const olostep: Provider = {
 			break; // single item batch
 		}
 
-		if (!retrieveId) throw new Error("Olostep batch completed but no items returned");
+		if (!retrieveId) {
+			const batchStatus = await client.batches.info(batch.id) as any;
+			throw new Error(`Olostep batch for ${model} completed but no items returned. Status: ${batchStatus?.status}, Error: ${batchStatus?.error}`);
+		}
 
 		// Use client.retrieve (GET) instead of item.retrieve (POST) — the
 		// SDK's BatchItem.retrieve uses POST which the API rejects with 403.
@@ -159,7 +191,7 @@ export const olostep: Provider = {
 			// Store the parsed content directly instead of the full retrieved
 			// wrapper (which double-encodes json_content as a string).
 			rawOutput: parsed,
-			textContent: extractTextFromOlostep(parsed),
+			textContent: extractTextFromOlostep(parsed, model),
 			// Mark as "unavailable" only when citations prove a search happened
 			// but the API didn't expose the query strings
 			webQueries: webQueries.length > 0 ? webQueries : citations.length > 0 ? [WEB_QUERIES_UNAVAILABLE] : [],

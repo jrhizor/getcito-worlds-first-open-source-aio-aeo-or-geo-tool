@@ -115,13 +115,16 @@ export const mistralApi: Provider = {
 	async runStructuredResearch<T>({
 		prompt,
 		schema,
+		version,
 		webSearch = true,
 	}: StructuredResearchOptions<T>): Promise<StructuredResearchResult<T>> {
 		const jsonSchema = z.toJSONSchema(schema as z.ZodType);
+		const targetModel = version ?? DEFAULT_RESEARCH_MODEL;
+
 		if (!webSearch) {
 			// Pure completion: plain chat endpoint with server-validated json_schema.
 			const data = await mistralPost("/v1/chat/completions", {
-				model: DEFAULT_RESEARCH_MODEL,
+				model: targetModel,
 				messages: [{ role: "user", content: prompt }],
 				response_format: {
 					type: "json_schema",
@@ -131,14 +134,14 @@ export const mistralApi: Provider = {
 			const content = data?.choices?.[0]?.message?.content ?? "";
 			return {
 				object: (schema as z.ZodType).parse(JSON.parse(content)) as T,
-				modelVersion: data?.model ?? DEFAULT_RESEARCH_MODEL,
+				modelVersion: data?.model ?? targetModel,
 			};
 		}
 		// /v1/conversations forwards completion_args.response_format through to
 		// the underlying chat completion, so we can have web_search AND
 		// server-validated json_schema output in a single call.
 		const data = await mistralPost("/v1/conversations", {
-			model: DEFAULT_RESEARCH_MODEL,
+			model: targetModel,
 			inputs: prompt,
 			tools: [{ type: "web_search" }],
 			completion_args: {
@@ -151,7 +154,7 @@ export const mistralApi: Provider = {
 		const { textContent } = parseConversationsResponse(data);
 		return {
 			object: (schema as z.ZodType).parse(JSON.parse(textContent)) as T,
-			modelVersion: data?.model ?? DEFAULT_RESEARCH_MODEL,
+			modelVersion: data?.model ?? targetModel,
 		};
 	},
 };
