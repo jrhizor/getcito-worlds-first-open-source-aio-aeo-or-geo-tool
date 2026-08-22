@@ -1,8 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getPromptChartDataFn } from "@/server/prompts";
 
-export type LookbackPeriod = "1w" | "1m" | "3m" | "6m" | "1y" | "all";
+export type { LookbackPeriod } from "@/lib/chart-utils";
+
+import type { LookbackPeriod } from "@/lib/chart-utils";
 
 export interface PromptChartDataFilters {
 	lookback?: LookbackPeriod;
@@ -35,8 +38,7 @@ export function usePromptChartData(
 	enabled: boolean = true,
 ) {
 	const params = useParams({ strict: false });
-	const resolvedBrandId =
-		brandId || (params && "brand" in params ? (params.brand as string) : undefined);
+	const resolvedBrandId = brandId || (params && "brand" in params ? (params.brand as string) : undefined);
 
 	const { data, error, isLoading, refetch } = useQuery({
 		queryKey: ["promptChartData", resolvedBrandId, promptId, filters],
@@ -48,7 +50,7 @@ export function usePromptChartData(
 					lookback: filters?.lookback || "1m",
 					webSearchEnabled: filters?.webSearchEnabled?.toString(),
 					model: filters?.model,
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					timezone: APP_TIMEZONE,
 				},
 			}),
 		enabled: enabled && !!resolvedBrandId,

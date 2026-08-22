@@ -1,7 +1,7 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
-import type { ProcessedBatchChartDataPoint } from "@/lib/postgres-read";
 import type { Brand, Competitor } from "@workspace/lib/db/schema";
-import { generateDateRange } from "@/lib/chart-utils";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
+import { generateDateRange, runWeightedVisibility } from "@/lib/chart-utils";
+import type { ProcessedBatchChartDataPoint } from "@/lib/postgres-read";
 
 // Chart data for a single prompt (pre-processed for rendering)
 export interface ProcessedChartData {
@@ -11,7 +11,10 @@ export interface ProcessedChartData {
 	}>;
 	totalRuns: number;
 	hasVisibilityData: boolean;
+	/** Brand visibility on the most recent day that has data. */
 	lastBrandVisibility: number | null;
+	/** Brand visibility across the whole selected window (run-weighted). */
+	avgBrandVisibility: number | null;
 }
 
 // Context value
@@ -106,6 +109,8 @@ export function ChartDataProvider({
 			});
 
 			const totalRuns = promptData.reduce((sum, s) => sum + Number(s.total_runs), 0);
+			const totalBrandMentions = promptData.reduce((sum, s) => sum + Number(s.brand_mentioned_count), 0);
+			const avgBrandVisibility = runWeightedVisibility(totalBrandMentions, totalRuns);
 
 			const hasVisibilityData = chartData.some((dataPoint) => {
 				const allIds = [brand.id, ...sortedCompetitors.map((c) => c.id)];
@@ -123,6 +128,7 @@ export function ChartDataProvider({
 				totalRuns,
 				hasVisibilityData,
 				lastBrandVisibility,
+				avgBrandVisibility,
 			};
 		};
 	}, [brand, batchData, dataByPrompt, dateRange, sortedCompetitors]);

@@ -1,8 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { getFilteredVisibilityFn, type FilteredVisibilityResponse } from "@/server/visibility";
+import { APP_TIMEZONE } from "@/lib/app-locale";
+import { type FilteredVisibilityResponse, getFilteredVisibilityFn } from "@/server/visibility";
 
-export type LookbackPeriod = "1w" | "1m" | "3m" | "6m" | "1y" | "all";
+export type { LookbackPeriod } from "@/lib/chart-utils";
+
+import type { LookbackPeriod } from "@/lib/chart-utils";
 
 export interface FilteredVisibilityFilters {
 	lookback?: LookbackPeriod;
@@ -34,7 +37,7 @@ export function useFilteredVisibility(brandId?: string, filters?: FilteredVisibi
 					model: filters?.model,
 					tags: filters?.tags?.join(","),
 					search: filters?.search,
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					timezone: APP_TIMEZONE,
 				},
 			}),
 		enabled: !!resolvedBrandId,

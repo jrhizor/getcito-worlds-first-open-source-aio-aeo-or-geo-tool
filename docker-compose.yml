@@ -8,7 +8,10 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # New deployments get 18. Existing PostgreSQL 16 data directories are not
+    # compatible: set POSTGRES_IMAGE_TAG=16-alpine before upgrading, then remove
+    # the pin only after a dump/restore into PostgreSQL 18.
+    image: postgres:${POSTGRES_IMAGE_TAG:-18-alpine}
     ports:
       - "127.0.0.1:5433:5432"
     environment:
@@ -33,6 +36,7 @@ services:
       start_period: 30s
 
   db-migrate:
+    pull_policy: build
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -44,13 +48,17 @@ services:
         condition: service_healthy
 
   web:
+    pull_policy: build
     build:
       context: .
       dockerfile: docker/Dockerfile
       target: web
       args:
-        DEPLOYMENT_MODE: local
-        VITE_DEPLOYMENT_MODE: local
+        # VITE_* values are baked into the client bundle at build time.
+        DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-local}
+        VITE_DEPLOYMENT_MODE: ${VITE_DEPLOYMENT_MODE:-local}
+        VITE_APP_TIMEZONE: ${VITE_APP_TIMEZONE:-}
+        VITE_APP_LOCALE: ${VITE_APP_LOCALE:-}
     env_file:
       - .env
     ports:
@@ -62,6 +70,7 @@ services:
         condition: service_completed_successfully
 
   worker:
+    pull_policy: build
     build:
       context: .
       dockerfile: docker/Dockerfile

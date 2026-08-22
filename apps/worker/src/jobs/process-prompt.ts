@@ -1,22 +1,34 @@
-import type { Job } from "pg-boss";
+import { getDefaultDelayHours, PROCESS_PROMPT_JOB_POLICY, RUNS_PER_PROMPT } from "@workspace/lib/constants";
+import { failureBackoffHours } from "@workspace/lib/run-backoff";
 import { db } from "@workspace/lib/db/db";
-import { brands, citations, competitors, promptRuns, prompts, type Brand, type Competitor } from "@workspace/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { RUNS_PER_PROMPT, getDefaultDelayHours } from "@workspace/lib/constants";
+import {
+	type Brand,
+	brands,
+	type Competitor,
+	citations,
+	competitors,
+	promptRuns,
+	prompts,
+} from "@workspace/lib/db/schema";
 import {
 	getProvider,
-	parseScrapeTargets,
-	selectTargetsForBrand,
 	type ModelConfig,
 	type Provider,
+	parseScrapeTargets,
+	selectTargetsForBrand,
+	withProviderCallTracking,
 } from "@workspace/lib/providers";
 import type { Citation } from "@workspace/lib/text-extraction";
+import { eq } from "drizzle-orm";
+import type { Job } from "pg-boss";
 import boss from "../boss";
 import { trackWorkerEvent } from "../telemetry";
 
 export interface ProcessPromptData {
 	promptId: string;
 	cadenceHours?: number; // Hours until next run (for self-rescheduling)
+	/** Cycles in a row where every run failed, carried forward to size the backoff. */
+	consecutiveFailures?: number;
 }
 
 interface PromptContext {
@@ -26,50 +38,33 @@ interface PromptContext {
 }
 
 /**
- * Schedule the next run for a prompt after the specified cadence.
+ * Schedule the next run for a prompt.
+ *
+ * Normally that's one cadence away; after a cycle where every run failed it's
+ * the shorter backoff from failureBackoffHours, and `consecutiveFailures` rides
+ * along on the job so the next failure can lengthen it again.
  */
-async function scheduleNextRun(promptId: string, cadenceHours: number): Promise<void> {
-	const startAfterSeconds = cadenceHours * 60 * 60;
+async function scheduleNextRun(promptId: string, cadenceHours: number, consecutiveFailures: number): Promise<void> {
+	const delayHours = failureBackoffHours(consecutiveFailures, cadenceHours);
+	const startAfterSeconds = Math.round(delayHours * 60 * 60);
 
 	try {
 		await boss.send(
 			"process-prompt",
-			{ promptId, cadenceHours },
+			{ promptId, cadenceHours, consecutiveFailures },
 			{
 				singletonKey: `prompt-${promptId}`,
-				singletonSeconds: startAfterSeconds, // Prevent duplicates for the cadence period
+				singletonSeconds: startAfterSeconds, // Prevent duplicates until the next attempt is due
 				startAfter: startAfterSeconds,
-				retryLimit: 3,
-				retryDelay: 60,
-				retryBackoff: true,
-				expireInSeconds: 60 * 15,
+				...PROCESS_PROMPT_JOB_POLICY,
 			},
 		);
-		console.log(`Scheduled next run for prompt ${promptId} in ${cadenceHours}h`);
+		const reason = consecutiveFailures > 0 ? ` (backing off after ${consecutiveFailures} failed cycle(s))` : "";
+		console.log(`Scheduled next run for prompt ${promptId} in ${delayHours}h${reason}`);
 	} catch (error) {
 		console.error(`Failed to schedule next run for prompt ${promptId}:`, error);
 		// Don't throw - we don't want to fail the job just because rescheduling failed
 	}
-}
-
-/**
- * Get the cadence hours for a prompt based on its brand's delay override.
- */
-async function getCadenceHours(promptId: string): Promise<number> {
-	const defaultDelayHours = getDefaultDelayHours();
-	const prompt = await db.query.prompts.findFirst({
-		where: eq(prompts.id, promptId),
-	});
-
-	if (!prompt) return defaultDelayHours;
-
-	const brand = await db.query.brands.findFirst({
-		where: eq(brands.id, prompt.brandId),
-	});
-
-	if (!brand) return defaultDelayHours;
-
-	return brand.delayOverrideHours ?? defaultDelayHours;
 }
 
 async function getPromptContext(promptId: string): Promise<PromptContext | null> {
@@ -127,16 +122,13 @@ function analyzeMentions(
 		...(brand.additionalDomains || []).map(extractDomainFromUrl),
 	];
 	const brandMentioned =
-		brandNames.some((n) => contentLower.includes(n)) ||
-		brandDomains.some((d) => contentLower.includes(d));
+		brandNames.some((n) => contentLower.includes(n)) || brandDomains.some((d) => contentLower.includes(d));
 
 	const competitorsMentioned = competitorsList
 		.filter((competitor) => {
 			const names = [competitor.name, ...(competitor.aliases || [])].map((n) => n.toLowerCase());
 			const nameMatch = names.some((n) => contentLower.includes(n));
-			const domainMatch = (competitor.domains || []).some((d) =>
-				contentLower.includes(extractDomainFromUrl(d)),
-			);
+			const domainMatch = (competitor.domains || []).some((d) => contentLower.includes(extractDomainFromUrl(d)));
 			return nameMatch || domainMatch;
 		})
 		.map((competitor) => competitor.name);
@@ -200,7 +192,6 @@ async function saveCitations(
 	);
 }
 
-
 async function runModelIteration({
 	promptId,
 	promptValue,
@@ -220,12 +211,24 @@ async function runModelIteration({
 }): Promise<void> {
 	const logPrefix = `[${config.model}_${runIndex}]`;
 
-	const result = await providerImpl.run(config.model, promptValue, {
-		webSearch: config.webSearch,
-		version: config.version,
-		targetMarket: brand.targetMarket ?? undefined,
-		targetLanguage: brand.targetLanguage ?? undefined,
-	});
+	// Locale and web search silently degrade rather than fail: a provider with no
+	// targetMarket geolocates from its own IP, and webSearch=false (no `:online`
+	// in SCRAPE_TARGETS) means the model answers from training data with no
+	// citations. Log what was actually sent so those two look different in the log.
+	console.log(
+		`${logPrefix} market=${brand.targetMarket ?? "none"} language=${brand.targetLanguage ?? "none"} webSearch=${config.webSearch}`,
+	);
+
+	const result = await withProviderCallTracking(
+		{ provider: providerImpl.id, model: config.model, kind: "run", brandId: brand.id, promptId },
+		() =>
+			providerImpl.run(config.model, promptValue, {
+				webSearch: config.webSearch,
+				version: config.version,
+				targetMarket: brand.targetMarket ?? undefined,
+				targetLanguage: brand.targetLanguage ?? undefined,
+			}),
+	);
 
 	// `webQueries` is stored exactly as the provider reported it — engines do
 	// sometimes genuinely search the prompt verbatim, and that's real data. The
@@ -268,11 +271,9 @@ export async function processPromptJob(jobs: Job<ProcessPromptData>[]): Promise<
 
 	// pg-boss v12 passes an array of jobs - process each one
 	for (const job of jobs) {
-		const { promptId, cadenceHours: providedCadence } = job.data;
+		const { promptId } = job.data;
+		const consecutiveFailures = job.data.consecutiveFailures ?? 0;
 		console.log(`Processing prompt ${promptId}`);
-
-		// Get cadence hours - use provided value or look it up
-		const cadenceHours = providedCadence ?? (await getCadenceHours(promptId));
 
 		// Get prompt context
 		const context = await getPromptContext(promptId);
@@ -283,11 +284,20 @@ export async function processPromptJob(jobs: Job<ProcessPromptData>[]): Promise<
 
 		const { prompt, brand, competitors: competitorsList } = context;
 
+		// Read the cadence from the brand rather than from `job.data.cadenceHours`.
+		// A job re-embeds its own cadence when it schedules the next run, so the
+		// payload value is whatever was current when the *first* job in the chain
+		// was created and it propagates forever - changing the delay override in the
+		// admin panel would move the dashboard's idea of "overdue" while the actual
+		// runs carried on at the old interval. The payload field is still written so
+		// the value a run used stays visible in the job log; it is no longer read.
+		const cadenceHours = brand.delayOverrideHours ?? getDefaultDelayHours();
+
 		// Check if prompt and brand are enabled
 		if (!prompt.enabled || !brand.enabled) {
 			console.log(`Prompt ${promptId} or brand ${brand.id} is disabled, skipping but rescheduling`);
 			// Still reschedule - the prompt might be enabled later
-			await scheduleNextRun(promptId, cadenceHours);
+			await scheduleNextRun(promptId, cadenceHours, 0);
 			continue;
 		}
 
@@ -300,10 +310,14 @@ export async function processPromptJob(jobs: Job<ProcessPromptData>[]): Promise<
 
 		// Run all model iterations in parallel
 		const runPromises: Promise<void>[] = [];
+		// Same order as runPromises, so a rejection can name the model that failed
+		// instead of an index into the (shorter) failures array.
+		const runLabels: string[] = [];
 
 		for (const config of selectedConfigs) {
 			const providerImpl = getProvider(config.provider);
 			for (let i = 0; i < RUNS_PER_PROMPT; i++) {
+				runLabels.push(`${config.model}_${i + 1}`);
 				runPromises.push(
 					runModelIteration({
 						promptId,
@@ -322,17 +336,16 @@ export async function processPromptJob(jobs: Job<ProcessPromptData>[]): Promise<
 		const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
 
 		if (failures.length > 0) {
-			const errorMessages = failures
-				.map((f, i) => `Run ${i + 1}: ${f.reason instanceof Error ? f.reason.message : String(f.reason)}`)
+			const errorMessages = results
+				.map((result, i) =>
+					result.status === "rejected"
+						? `[${runLabels[i]}] ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`
+						: null,
+				)
+				.filter(Boolean)
 				.join("; ");
 
-			// Log failures but don't throw if some succeeded
 			console.error(`Prompt ${promptId} had ${failures.length}/${runPromises.length} failed runs: ${errorMessages}`);
-
-			// If ALL runs failed, throw to trigger retry
-			if (failures.length === runPromises.length) {
-				throw new Error(`All runs failed for prompt ${promptId}: ${errorMessages}`);
-			}
 		}
 
 		const successCount = runPromises.length - failures.length;
@@ -347,7 +360,12 @@ export async function processPromptJob(jobs: Job<ProcessPromptData>[]): Promise<
 			failed_runs: failures.length,
 		});
 
-		// Schedule the next run
-		await scheduleNextRun(promptId, cadenceHours);
+		// A cycle where nothing came back means the targets themselves are failing,
+		// so the next attempt backs off instead of running on cadence. Anything
+		// that produced a run clears the streak. The backoff is capped at the
+		// cadence, so a prompt that stays broken costs what a healthy one costs
+		// rather than more.
+		const failedCycles = runPromises.length > 0 && successCount === 0 ? consecutiveFailures + 1 : 0;
+		await scheduleNextRun(promptId, cadenceHours, failedCycles);
 	}
 }

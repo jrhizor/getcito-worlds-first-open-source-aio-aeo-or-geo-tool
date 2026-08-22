@@ -80,18 +80,20 @@ export const CachedPromptChart = memo(function CachedPromptChart({
 	const totalRuns = chartData?.totalRuns ?? 0;
 	const hasVisibilityData = chartData?.hasVisibilityData ?? false;
 	const lastBrandVisibility = chartData?.lastBrandVisibility ?? null;
+	const avgBrandVisibility = chartData?.avgBrandVisibility ?? null;
 
 	const handleDownload = useCallback(() => {
 		if (!brand || !data || !competitors) return;
 		handleExport({
 			promptName,
-			visibility: lastBrandVisibility,
+			// Export the same headline number the card shows.
+			visibility: avgBrandVisibility,
 			data,
 			lookback,
 			brand,
 			competitors,
 		});
-	}, [handleExport, promptName, lastBrandVisibility, data, lookback, brand, competitors]);
+	}, [handleExport, promptName, avgBrandVisibility, data, lookback, brand, competitors]);
 
 	// Loading state — structure matches the success state card exactly:
 	// CardHeader (title + badge), Separator, CardContent (pl-0 pr-6, h-[250px]), footer
@@ -237,11 +239,28 @@ export const CachedPromptChart = memo(function CachedPromptChart({
 			<Card className="py-3 gap-3">
 				<CardHeader className="flex justify-between items-center px-3">
 					<PromptTitle name={promptName} highlight={searchHighlight} />
-					{lastBrandVisibility !== null && (
-						<Badge variant={getBadgeVariant(lastBrandVisibility)} className={getBadgeClassName(lastBrandVisibility)}>
-							{lastBrandVisibility}% Visibility
-						</Badge>
-					)}
+					{/* Average over the selected window is the headline number (it matches the
+					    page-level visibility bar); the latest day sits beside it as context. */}
+					<div className="flex shrink-0 items-center gap-1.5">
+						{avgBrandVisibility !== null && (
+							<Badge
+								variant={getBadgeVariant(avgBrandVisibility)}
+								className={getBadgeClassName(avgBrandVisibility)}
+								title="Average visibility across the selected time range"
+							>
+								{avgBrandVisibility}% Visibility
+							</Badge>
+						)}
+						{lastBrandVisibility !== null && (
+							<Badge
+								variant="outline"
+								className="font-normal text-muted-foreground"
+								title="Visibility on the most recent day with data"
+							>
+								{lastBrandVisibility}% latest
+							</Badge>
+						)}
+					</div>
 				</CardHeader>
 				<Separator className="py-0 my-0" />
 				<CardContent className="pl-0 pr-6">

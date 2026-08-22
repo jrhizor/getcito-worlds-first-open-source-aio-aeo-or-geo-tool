@@ -32,6 +32,11 @@ function withSentry<T, R>(
  * Register all job handlers with pg-boss.
  */
 export async function registerHandlers(boss: PgBoss): Promise<void> {
+	// This is what caps prompts in flight, and it is the queue's real throughput
+	// dial: a job spends nearly all of its time waiting on a provider, not on CPU
+	// or on the database. The provider gates below it are sized to cover the
+	// resulting fan-out (localConcurrency x the Olostep models in SCRAPE_TARGETS),
+	// so raising this without raising them just moves the queue from here to there.
 	await boss.work<ProcessPromptData>(
 		"process-prompt",
 		{ localConcurrency: 10 },

@@ -1,5 +1,11 @@
 # @workspace/config
 
+## 9.1.0
+
+### Minor Changes
+
+- Added Cloro, Azure Foundry, onboarding-provider, timezone, and locale environment configuration.
+
 ## 0.2.14
 
 ## 0.2.13

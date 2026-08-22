@@ -3,6 +3,7 @@ import {
 	extractCitations,
 	extractCitationsFromDataforseoLlm,
 	extractCitationsFromGoogle,
+	extractCitationsFromChatCompletion,
 	extractCitationsFromOpenAI,
 	extractCitationsFromOxylabs,
 	extractTextContent,
@@ -388,6 +389,37 @@ describe("text-extraction", () => {
 		it("should handle empty output gracefully", () => {
 			expect(extractCitationsFromOpenAI({})).toEqual([]);
 			expect(extractCitationsFromOpenAI(null)).toEqual([]);
+		});
+	});
+
+	describe("extractCitationsFromChatCompletion", () => {
+		it("extracts OpenAI-style message annotations", () => {
+			const raw = {
+				choices: [
+					{
+						message: {
+							annotations: [
+								{ type: "url_citation", url_citation: { url: "https://a.com/x", title: "A" } },
+							],
+						},
+					},
+				],
+			};
+			expect(extractCitationsFromChatCompletion(raw)).toEqual([
+				{ url: "https://a.com/x", title: "A", domain: "a.com", citationIndex: 0 },
+			]);
+		});
+
+		it("extracts Grok Live Search top-level citations (strings) and dedupes", () => {
+			const raw = { citations: ["https://b.com/y", "https://b.com/y", "https://www.c.org/z"] };
+			expect(extractCitationsFromChatCompletion(raw)).toEqual([
+				{ url: "https://b.com/y", title: undefined, domain: "b.com", citationIndex: 0 },
+				{ url: "https://www.c.org/z", title: undefined, domain: "c.org", citationIndex: 1 },
+			]);
+		});
+
+		it("returns [] for a web-search-less response", () => {
+			expect(extractCitationsFromChatCompletion({ choices: [{ message: { content: "hi" } }] })).toEqual([]);
 		});
 	});
 

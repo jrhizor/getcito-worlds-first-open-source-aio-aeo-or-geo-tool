@@ -11,6 +11,8 @@ interface ImportMetaEnv {
 	readonly VITE_APP_NAME?: string;
 	readonly VITE_APP_ICON?: string;
 	readonly VITE_APP_URL?: string;
+	readonly VITE_APP_TIMEZONE?: string;
+	readonly VITE_APP_LOCALE?: string;
 	readonly VITE_APP_PARENT_NAME?: string;
 	readonly VITE_APP_PARENT_URL?: string;
 	readonly VITE_OPTIMIZATION_URL_TEMPLATE?: string;
@@ -48,11 +50,15 @@ declare global {
 			readonly OPENAI_API_KEY: string;
 			readonly ANTHROPIC_API_KEY: string;
 			readonly MISTRAL_API_KEY?: string;
+			readonly AZURE_FOUNDRY_API_KEY?: string;
+			readonly AZURE_FOUNDRY_BASE_URL?: string;
 			readonly OPENROUTER_API_KEY?: string;
+			readonly ONBOARDING_LLM_TARGET?: string;
 			readonly OLOSTEP_API_KEY?: string;
 			readonly BRIGHTDATA_API_TOKEN?: string;
 			readonly OXYLABS_USERNAME?: string;
 			readonly OXYLABS_PASSWORD?: string;
+			readonly CLORO_API_KEY?: string;
 			readonly DATAFORSEO_LOGIN: string;
 			readonly DATAFORSEO_PASSWORD: string;
 			readonly BETTER_AUTH_SECRET?: string;

@@ -22,9 +22,10 @@
 import type { z } from "zod";
 import {
 	getProvider,
-	parseScrapeTargets,
 	type Provider,
+	parseScrapeTargets,
 	type StructuredResearchResult,
+	withProviderCallTracking,
 } from "../providers";
 
 /**
@@ -41,13 +42,16 @@ export const RESEARCH_PROVIDER_PREFERENCE = [
 	"openrouter",
 	"anthropic-api",
 	"mistral-api",
+	// Last resort: Foundry deployments do structured output but no web search,
+	// so prefer any provider that can research live first.
+	"azure-foundry-api",
 ] as const;
 
 export type ResearchProviderId = (typeof RESEARCH_PROVIDER_PREFERENCE)[number];
 
 const ONBOARDING_LLM_TARGET_HELP =
 	"Set ONBOARDING_LLM_TARGET (e.g. claude:anthropic-api) " +
-	"or configure AZURE_OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / MISTRAL_API_KEY.";
+	"or configure ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / MISTRAL_API_KEY / AZURE_FOUNDRY_API_KEY.";
 
 /**
  * Pick which direct-API provider the onboarding flow should use.
@@ -62,7 +66,10 @@ const ONBOARDING_LLM_TARGET_HELP =
  * to override the model via env or option. Operators who want a different
  * model edit the provider's `DEFAULT_RESEARCH_MODEL` constant in source.
  */
-export function resolveResearchProvider(env: Record<string, string | undefined> = process.env): { provider: Provider; version?: string } {
+export function resolveResearchProvider(env: Record<string, string | undefined> = process.env): {
+	provider: Provider;
+	version?: string;
+} {
 	const explicit = env.ONBOARDING_LLM_TARGET?.trim();
 	if (explicit) {
 		const [parsed] = parseScrapeTargets(explicit);
@@ -85,16 +92,20 @@ export function resolveResearchProvider(env: Record<string, string | undefined> 
 		const provider = getProvider(id);
 		if (!provider.isConfigured()) continue;
 		if (!provider.runStructuredResearch) continue;
-		
+
+		// Only borrow a model name from a target on this same provider. Model ids
+		// are provider-scoped (an Azure deployment name, an OpenRouter slug, a
+		// scraper's engine id), so falling back to some other provider's target
+		// sends a name the API can't resolve. With no matching target the
+		// provider uses its own DEFAULT_RESEARCH_MODEL.
 		let version: string | undefined;
 		try {
-			const targets = parseScrapeTargets(process.env.SCRAPE_TARGETS);
-			const matching = targets.find((t) => t.provider === id) || targets[0];
+			const matching = parseScrapeTargets(process.env.SCRAPE_TARGETS).find((t) => t.provider === id);
 			if (matching) version = matching.version || matching.model;
 		} catch {
 			// ignore
 		}
-		
+
 		return { provider, version };
 	}
 
@@ -111,7 +122,10 @@ export async function runStructuredResearchPrompt<T>(prompt: string, schema: z.Z
 	if (!provider.runStructuredResearch) {
 		throw new Error(`Provider "${provider.id}" does not implement structured research`);
 	}
-	const result = await provider.runStructuredResearch({ prompt, schema, version });
+	const result = await withProviderCallTracking(
+		{ provider: provider.id, model: version ?? provider.id, kind: "research" },
+		() => provider.runStructuredResearch!({ prompt, schema, version }),
+	);
 	return result.object;
 }
 
@@ -132,5 +146,7 @@ export async function runStructuredCompletionPrompt<T>(
 	if (!provider.runStructuredResearch) {
 		throw new Error(`Provider "${provider.id}" does not implement structured research`);
 	}
-	return provider.runStructuredResearch({ prompt, schema, version, webSearch: false });
+	return withProviderCallTracking({ provider: provider.id, model: version ?? provider.id, kind: "research" }, () =>
+		provider.runStructuredResearch!({ prompt, schema, version, webSearch: false }),
+	);
 }

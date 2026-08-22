@@ -4,14 +4,15 @@ import { getCitationsFn } from "@/server/citations";
 
 export interface CitationFilters {
 	days?: number;
+	/** Last day of the window (`YYYY-MM-DD`); omit for a window ending today. */
+	endDate?: string;
 	tags?: string[];
 	model?: string;
 }
 
 export const citationKeys = {
 	all: ["citations"] as const,
-	list: (brandId: string, filters?: CitationFilters) =>
-		[...citationKeys.all, brandId, filters] as const,
+	list: (brandId: string, filters?: CitationFilters) => [...citationKeys.all, brandId, filters] as const,
 };
 
 export function useCitations(brandId?: string, filters?: CitationFilters) {
@@ -25,6 +26,7 @@ export function useCitations(brandId?: string, filters?: CitationFilters) {
 				data: {
 					brandId: resolvedBrandId!,
 					days: filters?.days || 7,
+					endDate: filters?.endDate,
 					tags: filters?.tags?.join(","),
 					model: filters?.model,
 				},

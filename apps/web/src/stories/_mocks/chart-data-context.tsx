@@ -3,7 +3,7 @@
  *
  * CachedPromptChart reads all its data from this context instead of fetching directly.
  */
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 
 // Re-export the types that components import from the real module
 export interface ProcessedChartData {
@@ -11,6 +11,7 @@ export interface ProcessedChartData {
 	totalRuns: number;
 	hasVisibilityData: boolean;
 	lastBrandVisibility: number | null;
+	avgBrandVisibility: number | null;
 }
 
 interface ChartDataContextValue {

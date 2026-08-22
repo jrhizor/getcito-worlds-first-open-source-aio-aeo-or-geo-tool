@@ -2,7 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { getPromptsSummaryFn } from "@/server/prompts";
 
-export type LookbackPeriod = "1w" | "1m" | "3m" | "6m" | "1y" | "all";
+export type { LookbackPeriod } from "@/lib/chart-utils";
+
+import type { LookbackPeriod } from "@/lib/chart-utils";
 
 export interface PromptsSummaryFilters {
 	lookback?: LookbackPeriod;
@@ -13,8 +15,7 @@ export interface PromptsSummaryFilters {
 
 export const promptsSummaryKeys = {
 	all: ["prompts-summary"] as const,
-	list: (brandId: string, filters?: PromptsSummaryFilters) =>
-		[...promptsSummaryKeys.all, brandId, filters] as const,
+	list: (brandId: string, filters?: PromptsSummaryFilters) => [...promptsSummaryKeys.all, brandId, filters] as const,
 };
 
 export function usePromptsSummary(brandId?: string, filters?: PromptsSummaryFilters) {

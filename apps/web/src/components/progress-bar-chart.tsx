@@ -204,7 +204,8 @@ const COLOR_BY_ICON: Record<string, string> = {
 /** Resolve a model id to a display color. "all" is a no-filter sentinel. */
 export function getModelColor(model: string): string | undefined {
 	if (model === "all") return "#8b5cf6";
-	return COLOR_BY_ICON[getModelMeta(model).iconId];
+	const meta = getModelMeta(model);
+	return meta.color ?? COLOR_BY_ICON[meta.iconId];
 }
 
 /** Colors for every model id in `KNOWN_MODELS` plus "all". Unknown deployment
@@ -217,4 +218,3 @@ export const MODEL_COLORS: ColorMapping = {
 			.filter((entry): entry is [string, string] => entry[1] !== undefined),
 	),
 };
-

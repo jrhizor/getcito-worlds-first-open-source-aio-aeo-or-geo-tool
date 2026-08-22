@@ -19,13 +19,13 @@ describe("parseScrapeTargets", () => {
 		});
 
 		it("parses model:provider:version", () => {
-			const result = parseScrapeTargets("chatgpt:openai-api:gpt-5-mini");
-			expect(result).toEqual([{ model: "chatgpt", provider: "openai-api", version: "gpt-5-mini", webSearch: false }]);
+			const result = parseScrapeTargets("chatgpt:openai-api:gpt-5.5");
+			expect(result).toEqual([{ model: "chatgpt", provider: "openai-api", version: "gpt-5.5", webSearch: false }]);
 		});
 
 		it("parses model:provider:version:online", () => {
-			const result = parseScrapeTargets("chatgpt:openai-api:gpt-5-mini:online");
-			expect(result).toEqual([{ model: "chatgpt", provider: "openai-api", version: "gpt-5-mini", webSearch: true }]);
+			const result = parseScrapeTargets("chatgpt:openai-api:gpt-5.5:online");
+			expect(result).toEqual([{ model: "chatgpt", provider: "openai-api", version: "gpt-5.5", webSearch: true }]);
 		});
 	});
 
@@ -45,9 +45,9 @@ describe("parseScrapeTargets", () => {
 	});
 
 	it("handles OpenRouter version slugs with colons", () => {
-		const result = parseScrapeTargets("chatgpt:openrouter:openai/gpt-5-mini:free:online");
+		const result = parseScrapeTargets("chatgpt:openrouter:openai/gpt-5.5:free:online");
 		expect(result).toEqual([
-			{ model: "chatgpt", provider: "openrouter", version: "openai/gpt-5-mini:free", webSearch: true },
+			{ model: "chatgpt", provider: "openrouter", version: "openai/gpt-5.5:free", webSearch: true },
 		]);
 	});
 
@@ -143,7 +143,7 @@ describe("validateScrapeTargets", () => {
 	});
 
 	it("passes when openai-api provider has a version", () => {
-		const configs = [{ model: "chatgpt", provider: "openai-api", version: "gpt-5-mini", webSearch: true }];
+		const configs = [{ model: "chatgpt", provider: "openai-api", version: "gpt-5.5", webSearch: true }];
 		expect(() => validateScrapeTargets(configs, makeGetProvider({ "openai-api": configuredProvider }))).not.toThrow();
 	});
 
@@ -155,7 +155,7 @@ describe("validateScrapeTargets", () => {
 	});
 
 	it("passes when openrouter provider has a version", () => {
-		const configs = [{ model: "chatgpt", provider: "openrouter", version: "openai/gpt-5-mini", webSearch: true }];
+		const configs = [{ model: "chatgpt", provider: "openrouter", version: "openai/gpt-5.5", webSearch: true }];
 		expect(() => validateScrapeTargets(configs, makeGetProvider({ openrouter: configuredProvider }))).not.toThrow();
 	});
 
@@ -200,8 +200,11 @@ describe("provider validateTarget", () => {
 			}
 		});
 
-		it("rejects targets without :online", () => {
-			expect(olostep.validateTarget!(config("chatgpt", "olostep", false))).toMatch(/requires :online/);
+		// The `:online` requirement was dropped in 6ff27ea: these engines always
+		// search, so the flag says nothing about the target's validity and
+		// rejecting it only broke otherwise-working configurations.
+		it("accepts targets without :online", () => {
+			expect(olostep.validateTarget!(config("chatgpt", "olostep", false))).toBeNull();
 		});
 
 		it("rejects unknown models", () => {

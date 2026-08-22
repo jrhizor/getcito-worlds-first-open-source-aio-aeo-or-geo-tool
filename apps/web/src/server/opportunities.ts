@@ -35,6 +35,7 @@ import {
 	type PerPromptRunStats,
 } from "@/lib/postgres-read";
 import { isBrandedPrompt } from "@/lib/prompt-tags";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getTimezoneLookbackRange, resolveTimezone } from "@/lib/timezone-utils";
 import { computeVolatility, type DailyDomainCount, stabilityScore } from "@/lib/visibility-stats";
 import { resolveFilteredPrompts } from "@/server/prompt-resolution";
@@ -470,7 +471,7 @@ async function generateValidReport(prompt: string): Promise<{ report: RawReport;
 // ============================================================================
 
 export const getOpportunitiesFn = createServerFn({ method: "GET" })
-	.validator(z.object({ brandId: z.string(), timezone: z.string().default("UTC") }))
+	.validator(z.object({ brandId: z.string(), timezone: z.string().default(APP_TIMEZONE) }))
 	.handler(async ({ data }): Promise<OpportunitiesResponse> => {
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, data.brandId);

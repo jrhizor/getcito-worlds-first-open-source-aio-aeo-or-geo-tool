@@ -6,20 +6,28 @@
  * demo are blocked at both the loader (redirect to /app) and the server
  * function (canCreateBrands policy).
  */
-import { useState } from "react";
+
 import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { DATAFORSEO_LANGUAGES } from "@workspace/lib/languages";
+import { DATAFORSEO_LOCATION_LANGUAGES } from "@workspace/lib/location-languages";
+import { TARGET_MARKETS } from "@workspace/lib/locations";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@workspace/ui/components/select";
+import { useState } from "react";
 import FullPageCard from "@/components/full-page-card";
+import { getDeployment } from "@/lib/config/server";
 import { trackEvent } from "@/lib/posthog";
 import { createBrandWithOrgFn } from "@/server/brands";
-import { getDeployment } from "@/lib/config/server";
-import { DATAFORSEO_LOCATIONS } from "@workspace/lib/locations";
-import { DATAFORSEO_LANGUAGES } from "@workspace/lib/languages";
-import { DATAFORSEO_LOCATION_LANGUAGES } from "@workspace/lib/location-languages";
 
 const getCanCreateBrands = createServerFn({ method: "GET" }).handler(async () => {
 	return { canCreateBrands: getDeployment().features.canCreateBrands };
@@ -48,15 +56,16 @@ function NewBrandPage() {
 		setTargetMarket(val);
 		if (targetLanguage) {
 			const validLangs = DATAFORSEO_LOCATION_LANGUAGES[val] || DATAFORSEO_LANGUAGES;
-			if (!validLangs.some(l => l.name === targetLanguage)) {
+			if (!validLangs.some((l) => l.name === targetLanguage)) {
 				setTargetLanguage("");
 			}
 		}
 	};
 
-	const availableLanguages = targetMarket && DATAFORSEO_LOCATION_LANGUAGES[targetMarket] 
-		? DATAFORSEO_LOCATION_LANGUAGES[targetMarket] 
-		: DATAFORSEO_LANGUAGES;
+	const availableLanguages =
+		targetMarket && DATAFORSEO_LOCATION_LANGUAGES[targetMarket]
+			? DATAFORSEO_LOCATION_LANGUAGES[targetMarket]
+			: DATAFORSEO_LANGUAGES;
 
 	const handleSubmit = async (formData: FormData) => {
 		setIsLoading(true);
@@ -65,11 +74,17 @@ function NewBrandPage() {
 		try {
 			const brandName = (formData.get("brandName") as string)?.trim() ?? "";
 			const website = (formData.get("website") as string)?.trim() ?? "";
-			const targetMarket = (formData.get("targetMarket") as string)?.trim() ?? undefined;
-			const targetLanguage = (formData.get("targetLanguage") as string)?.trim() ?? undefined;
 
+			// Read the selects from state, not FormData: the empty-string default
+			// would otherwise be persisted as "" instead of NULL, and the value only
+			// reaches FormData through Radix's hidden native select.
 			const { brandId } = await createBrandWithOrgFn({
-				data: { brandName, website, targetMarket, targetLanguage },
+				data: {
+					brandName,
+					website,
+					targetMarket: targetMarket || undefined,
+					targetLanguage: targetLanguage || undefined,
+				},
 			});
 			trackEvent("brand_created", { has_website: Boolean(website) });
 
@@ -97,13 +112,18 @@ function NewBrandPage() {
 
 				<div className="space-y-2">
 					<Label htmlFor="targetMarket">Target Market (Optional)</Label>
-					<Select name="targetMarket" value={targetMarket} onValueChange={handleTargetMarketChange} disabled={isLoading}>
+					<Select
+						name="targetMarket"
+						value={targetMarket}
+						onValueChange={handleTargetMarketChange}
+						disabled={isLoading}
+					>
 						<SelectTrigger id="targetMarket">
 							<SelectValue placeholder="Select target market (e.g. United States)" />
 						</SelectTrigger>
 						<SelectContent>
 							<SelectGroup>
-								{DATAFORSEO_LOCATIONS.map((location) => (
+								{TARGET_MARKETS.map((location) => (
 									<SelectItem key={location} value={location}>
 										{location}
 									</SelectItem>
@@ -115,7 +135,12 @@ function NewBrandPage() {
 
 				<div className="space-y-2">
 					<Label htmlFor="targetLanguage">Target Language (Optional)</Label>
-					<Select name="targetLanguage" value={targetLanguage} onValueChange={setTargetLanguage} disabled={isLoading || !targetMarket}>
+					<Select
+						name="targetLanguage"
+						value={targetLanguage}
+						onValueChange={setTargetLanguage}
+						disabled={isLoading || !targetMarket}
+					>
 						<SelectTrigger id="targetLanguage">
 							<SelectValue placeholder={targetMarket ? "Select target language" : "Select a market first"} />
 						</SelectTrigger>

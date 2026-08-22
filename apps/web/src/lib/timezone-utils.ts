@@ -1,4 +1,5 @@
-import type { LookbackPeriod } from "@/lib/chart-utils";
+import { APP_TIMEZONE } from "@/lib/app-locale";
+import { type LookbackPeriod, parseCustomLookback } from "@/lib/chart-utils";
 
 type DateShift = {
 	days?: number;
@@ -23,15 +24,7 @@ export function resolveTimezone(timezoneParam?: string, resolvedFallback?: strin
 		}
 	}
 
-	const resolved = resolvedFallback ?? (() => {
-		try {
-			return Intl.DateTimeFormat().resolvedOptions().timeZone;
-		} catch {
-			return undefined;
-		}
-	})();
-
-	return resolved || "UTC";
+	return resolvedFallback || APP_TIMEZONE;
 }
 
 export function shiftDateStr(dateStr: string, delta: DateShift): string {
@@ -74,6 +67,12 @@ export function getTimezoneLookbackRange(
 	const now = options?.now ?? new Date();
 	const todayStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
 
+	// A custom range already is a pair of calendar dates in the user's own terms.
+	const custom = parseCustomLookback(lookback);
+	if (custom) {
+		return { fromDateStr: custom.from, toDateStr: custom.to };
+	}
+
 	if (lookback === "all") {
 		if (options?.allStrategy === "1y") {
 			return {
@@ -108,6 +107,12 @@ export function getTimezoneLookbackRange(
 		case "1y":
 			return {
 				fromDateStr: shiftDateStr(todayStr, { years: -1 }),
+				toDateStr: todayStr,
+			};
+		default:
+			// Malformed custom range - fall back to the default one-month window.
+			return {
+				fromDateStr: shiftDateStr(todayStr, { months: -1 }),
 				toDateStr: todayStr,
 			};
 	}

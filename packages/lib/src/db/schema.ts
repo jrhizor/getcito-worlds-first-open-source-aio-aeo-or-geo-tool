@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, uuid, text, timestamp, boolean, json, index, integer, smallint } from "drizzle-orm/pg-core";
+import { boolean, index, integer, json, pgEnum, pgTable, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 // Better-auth tables & relations — re-exported so `import * as schema` sees everything.
 // Source file is auto-generated; run `pnpm run generate:auth-schema` to refresh.
@@ -77,7 +77,9 @@ export const promptRuns = pgTable(
 		promptId: uuid("prompt_id")
 			.references(() => prompts.id)
 			.notNull(),
-		brandId: text("brand_id").references(() => brands.id).notNull(),
+		brandId: text("brand_id")
+			.references(() => brands.id)
+			.notNull(),
 		model: text("model").notNull(),
 		provider: text("provider"),
 		version: text("version").notNull(),
@@ -92,9 +94,16 @@ export const promptRuns = pgTable(
 		promptIdCreatedAtIdx: index("prompt_runs_prompt_id_created_at_idx").on(table.promptId, table.createdAt),
 		createdAtIdx: index("prompt_runs_created_at_idx").on(table.createdAt),
 		webSearchCreatedAtIdx: index("prompt_runs_web_search_created_at_idx").on(table.webSearchEnabled, table.createdAt),
-		webSearchModelCreatedAtIdx: index("prompt_runs_web_search_model_created_at_idx").on(table.webSearchEnabled, table.model, table.createdAt),
+		webSearchModelCreatedAtIdx: index("prompt_runs_web_search_model_created_at_idx").on(
+			table.webSearchEnabled,
+			table.model,
+			table.createdAt,
+		),
 		providerIdx: index("prompt_runs_provider_idx").on(table.provider),
 		modelCreatedAtIdx: index("prompt_runs_model_created_at_idx").on(table.model, table.createdAt),
+		// Deleting a brand deletes its runs by brand_id; without this the delete
+		// sequentially scans the largest table in the schema.
+		brandIdIdx: index("prompt_runs_brand_id_idx").on(table.brandId),
 	}),
 ).enableRLS();
 
@@ -119,9 +128,21 @@ export const citations = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
 	},
 	(table) => ({
-		brandAnalyticsIdx: index("idx_citations_brand_analytics").on(table.brandId, table.createdAt, table.url, table.domain, table.title, table.promptId, table.model),
+		brandAnalyticsIdx: index("idx_citations_brand_analytics").on(
+			table.brandId,
+			table.createdAt,
+			table.url,
+			table.domain,
+			table.title,
+			table.promptId,
+			table.model,
+		),
 		promptCreatedIdx: index("citations_prompt_id_created_at_idx").on(table.promptId, table.createdAt),
 		domainIdx: index("citations_domain_idx").on(table.domain),
+		// Postgres does not index foreign keys automatically. Every `prompt_runs`
+		// delete has to prove no citation still references the row, so without this
+		// index a brand delete scans all of `citations` once per deleted run.
+		promptRunIdIdx: index("citations_prompt_run_id_idx").on(table.promptRunId),
 	}),
 ).enableRLS();
 
@@ -169,6 +190,58 @@ export const brandOpportunities = pgTable(
 
 export type BrandOpportunity = typeof brandOpportunities.$inferSelect;
 export type NewBrandOpportunity = typeof brandOpportunities.$inferInsert;
+
+/**
+ * One row per billable upstream provider call, for reconciling our usage
+ * against a vendor's invoice.
+ *
+ * A row is written per `Provider.run()` / `runStructuredResearch()` — one
+ * scrape or one completion — not per outbound HTTP request. Olostep's batch
+ * flow polls status every 5s and then fetches the result, but bills for the
+ * scrape, so counting HTTP requests would overstate usage by roughly 10x.
+ *
+ * Failed calls are recorded too: a provider that errors after the upstream
+ * work has started is still billed, and a run that fails stores no prompt_runs
+ * row, so this table is the only place that count exists.
+ *
+ * No foreign key on brand_id — this is an append-only log that must outlive
+ * the brand it was run for.
+ */
+export const providerCalls = pgTable(
+	"provider_calls",
+	{
+		id: uuid("id").defaultRandom().primaryKey().notNull(),
+		/** Provider id from the registry, e.g. "olostep". */
+		provider: text("provider").notNull(),
+		/** Tracked model, e.g. "chatgpt". */
+		model: text("model").notNull(),
+		/** "run" for a tracked prompt/report run, "research" for onboarding analysis. */
+		kind: text("kind").notNull(),
+		brandId: text("brand_id"),
+		/**
+		 * The tracked prompt this call was made for, so a slow model can be traced to
+		 * the prompt it was slow on. Null for report runs (no stored prompt) and for
+		 * onboarding research. No foreign key, for the same reason `brand_id` has none.
+		 */
+		promptId: uuid("prompt_id"),
+		success: boolean("success").notNull(),
+		errorMessage: text("error_message"),
+		durationMs: integer("duration_ms"),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => ({
+		providerCreatedIdx: index("provider_calls_provider_created_at_idx").on(table.provider, table.createdAt),
+		promptCreatedIdx: index("provider_calls_prompt_id_created_at_idx").on(table.promptId, table.createdAt),
+		providerModelCreatedIdx: index("provider_calls_provider_model_created_at_idx").on(
+			table.provider,
+			table.model,
+			table.createdAt,
+		),
+	}),
+).enableRLS();
+
+export type ProviderCall = typeof providerCalls.$inferSelect;
+export type NewProviderCall = typeof providerCalls.$inferInsert;
 
 export type Brand = typeof brands.$inferSelect;
 export type NewBrand = typeof brands.$inferInsert;

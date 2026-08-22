@@ -1,8 +1,8 @@
-import { getDefaultDelayHours } from "@workspace/lib/constants";
+import { FIRST_RUN_JOB_PRIORITY, getDefaultDelayHours, PROCESS_PROMPT_JOB_POLICY } from "@workspace/lib/constants";
 import { db } from "@workspace/lib/db/db";
 import { brands, promptRuns, prompts } from "@workspace/lib/db/schema";
-import { parseScrapeTargets } from "@workspace/lib/providers";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { EXPEDITE_MIN_INTERVAL_MS, shouldExpediteJob } from "@workspace/lib/expedite";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Job } from "pg-boss";
 import boss from "../boss";
 
@@ -15,7 +15,7 @@ export interface ScheduleMaintenanceData {
  * This is a self-healing mechanism that catches any prompts that fell through
  * the cracks (e.g., due to worker crashes, failed jobs, etc.).
  *
- * Runs every 6 hours via pg-boss schedule.
+ * Scheduled in apps/worker/src/index.ts.
  */
 export async function scheduleMaintenanceJob(jobs: Job<ScheduleMaintenanceData>[]): Promise<void> {
 	for (const job of jobs) {
@@ -61,8 +61,19 @@ async function runMaintenanceCheck(): Promise<void> {
 
 	console.log(`[schedule-maintenance] Checking ${enabledPrompts.length} enabled prompts`);
 
-	const allModels = parseScrapeTargets(process.env.SCRAPE_TARGETS);
-	const modelNames = allModels.map((cfg) => cfg.model);
+	// Bound the last-run scan. prompt_runs only grows and this job runs every five
+	// minutes, so aggregating the whole table is a cost that rises forever while the
+	// answer only depends on recent rows — anything older than a couple of cadences
+	// reads as overdue either way.
+	//
+	// The floor is what keeps that safe. A prompt with no rows in the window is
+	// indistinguishable from one that has never run, and never-run prompts are given
+	// first-run priority, so the window has to be wide enough that a merely
+	// backlogged prompt still shows up inside it.
+	// ponytail: fixed floor; derive it from observed backlog depth if the queue ever
+	// runs more than a week behind.
+	const maxCadenceHours = Math.max(defaultDelayHours, ...Object.values(brandDelayMap));
+	const lastRunWindowMs = Math.max(2 * maxCadenceHours * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
 
 	// Get last runs per prompt per model (matches dashboard overdue logic)
 	const lastRunsQuery = await db
@@ -72,6 +83,7 @@ async function runMaintenanceCheck(): Promise<void> {
 			lastRunAt: sql<Date>`MAX(${promptRuns.createdAt})`.as("last_run_at"),
 		})
 		.from(promptRuns)
+		.where(gte(promptRuns.createdAt, new Date(Date.now() - lastRunWindowMs)))
 		.groupBy(promptRuns.promptId, promptRuns.model);
 
 	const lastRunsMap: Record<string, Record<string, Date>> = {};
@@ -86,8 +98,12 @@ async function runMaintenanceCheck(): Promise<void> {
 	const pendingJobMap = await getPendingJobMap();
 
 	const now = Date.now();
-	const promptsToSchedule: { promptId: string; cadenceHours: number }[] = [];
-	const jobsToExpedite: string[] = []; // Job IDs to expedite (move start_after to now)
+	// `neverRun` prompts are tracked separately from merely overdue ones: they are
+	// what a new brand's dashboard is waiting on, so they go to the front of the
+	// queue rather than behind a backlog that can take most of a day to drain.
+	// See FIRST_RUN_JOB_PRIORITY.
+	const promptsToSchedule: { promptId: string; cadenceHours: number; neverRun: boolean }[] = [];
+	const jobsToExpedite: { jobId: string; neverRun: boolean }[] = [];
 
 	for (const prompt of enabledPrompts) {
 		const pendingJob = pendingJobMap.get(prompt.id);
@@ -104,31 +120,30 @@ async function runMaintenanceCheck(): Promise<void> {
 		// Strict Run Delay Logic:
 		// We only care about the most recent time this prompt was run, regardless of which model.
 		// If they add a new model to the config, we DO NOT expedite the run. We wait for the strict cadence.
-		let isOverdue = false;
 		const allRunTimes = Object.values(lastRuns).map((d) => new Date(d as Date).getTime());
+		const neverRun = allRunTimes.length === 0;
+		// Most recent run on ANY model, or null if there is none in the window.
+		const lastRunAt = neverRun ? null : new Date(Math.max(...allRunTimes));
 
-		if (allRunTimes.length === 0) {
-			// Never run before - definitely overdue
-			isOverdue = true;
-		} else {
-			// Find the most recent time this prompt was run on ANY model
-			const mostRecentRunMs = Math.max(...allRunTimes);
-			const timeSinceMostRecentRun = now - mostRecentRunMs;
-			
-			// It's only overdue if the MOST RECENT run was longer ago than the cadence
-			if (timeSinceMostRecentRun > runFrequencyMs) {
-				isOverdue = true;
-			}
-		}
+		// It's only overdue if the MOST RECENT run was longer ago than the cadence.
+		const isOverdue = lastRunAt === null || now - lastRunAt.getTime() > runFrequencyMs;
 
 		if (!isOverdue) continue;
 
 		if (pendingJob && pendingJob.state === "created") {
-			// There's a future job scheduled - expedite it to run now
-			jobsToExpedite.push(pendingJob.jobId);
+			// There's a future job scheduled - expedite it to run now, unless its
+			// delay is a deliberate failure backoff rather than a normal cadence wait.
+			const expedite = shouldExpediteJob({
+				jobConsecutiveFailures: pendingJob.consecutiveFailures,
+				lastRunAt,
+				runFrequencyMs,
+				now,
+				minIntervalMs: EXPEDITE_MIN_INTERVAL_MS,
+			});
+			if (expedite) jobsToExpedite.push({ jobId: pendingJob.jobId, neverRun });
 		} else {
 			// No pending job at all - create a new one
-			promptsToSchedule.push({ promptId: prompt.id, cadenceHours });
+			promptsToSchedule.push({ promptId: prompt.id, cadenceHours, neverRun });
 		}
 	}
 
@@ -144,11 +159,11 @@ async function runMaintenanceCheck(): Promise<void> {
 	// Expedite existing future jobs to run now by updating start_after
 	if (jobsToExpedite.length > 0) {
 		let expeditedCount = 0;
-		for (const jobId of jobsToExpedite) {
+		for (const { jobId, neverRun } of jobsToExpedite) {
 			try {
 				await db.execute(sql`
 					UPDATE pgboss.job
-					SET start_after = now()
+					SET start_after = now()${neverRun ? sql`, priority = ${FIRST_RUN_JOB_PRIORITY}` : sql``}
 					WHERE id = ${jobId}
 					  AND state = 'created'
 				`);
@@ -157,7 +172,10 @@ async function runMaintenanceCheck(): Promise<void> {
 				console.error(`[schedule-maintenance] Failed to expedite job ${jobId}:`, error);
 			}
 		}
-		console.log(`[schedule-maintenance] Expedited ${expeditedCount} future jobs to run now`);
+		const firstRuns = jobsToExpedite.filter((j) => j.neverRun).length;
+		console.log(
+			`[schedule-maintenance] Expedited ${expeditedCount} future jobs to run now (${firstRuns} first runs prioritised)`,
+		);
 	}
 
 	// Schedule new jobs for prompts with no pending job
@@ -169,17 +187,15 @@ async function runMaintenanceCheck(): Promise<void> {
 		for (let i = 0; i < promptsToSchedule.length; i += BATCH_SIZE) {
 			const batch = promptsToSchedule.slice(i, i + BATCH_SIZE);
 			const results = await Promise.allSettled(
-				batch.map(({ promptId, cadenceHours }) =>
+				batch.map(({ promptId, cadenceHours, neverRun }) =>
 					boss.send(
 						"process-prompt",
 						{ promptId, cadenceHours },
 						{
 							singletonKey: `prompt-${promptId}`,
 							singletonSeconds: 60 * 60, // 1 hour - prevent duplicates
-							retryLimit: 3,
-							retryDelay: 60,
-							retryBackoff: true,
-							expireInSeconds: 60 * 15,
+							...(neverRun && { priority: FIRST_RUN_JOB_PRIORITY }),
+							...PROCESS_PROMPT_JOB_POLICY,
 						},
 					),
 				),
@@ -208,11 +224,13 @@ async function runMaintenanceCheck(): Promise<void> {
 interface PendingJobInfo {
 	jobId: string;
 	state: "created" | "active" | "retry";
+	/** Failure streak the job carries, written by process-prompt when it reschedules. */
+	consecutiveFailures: number;
 }
 
 async function getPendingJobMap(): Promise<Map<string, PendingJobInfo>> {
 	const result = await db.execute(sql`
-		SELECT id, data->>'promptId' as prompt_id, state
+		SELECT id, data->>'promptId' as prompt_id, state, data->>'consecutiveFailures' as consecutive_failures
 		FROM pgboss.job
 		WHERE name = 'process-prompt'
 		  AND state IN ('created', 'active', 'retry')
@@ -226,11 +244,19 @@ async function getPendingJobMap(): Promise<Map<string, PendingJobInfo>> {
 	`);
 
 	const map = new Map<string, PendingJobInfo>();
-	for (const row of result.rows as { id: string; prompt_id: string; state: string }[]) {
+	for (const row of result.rows as {
+		id: string;
+		prompt_id: string;
+		state: string;
+		consecutive_failures: string | null;
+	}[]) {
 		if (row.prompt_id && !map.has(row.prompt_id)) {
 			map.set(row.prompt_id, {
 				jobId: row.id,
 				state: row.state as "created" | "active" | "retry",
+				// Absent on jobs enqueued before this field existed, and on the ones
+				// the web app creates.
+				consecutiveFailures: Number(row.consecutive_failures) || 0,
 			});
 		}
 	}

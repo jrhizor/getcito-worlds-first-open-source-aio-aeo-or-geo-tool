@@ -8,6 +8,7 @@ import type {
 	StructuredResearchOptions,
 	StructuredResearchResult,
 } from "../types";
+import { localeCountryCode, localeSystemPrompt } from "../locale";
 
 const DEFAULT_RESEARCH_MODEL = "gpt-4o-mini";
 
@@ -25,14 +26,22 @@ function getOpenAIResponsesModel(model: string) {
 async function runOpenAI(prompt: string, model: string, options?: ProviderOptions): Promise<ScrapeResult> {
 	const tools: Record<string, any> = {};
 	if (options?.webSearch) {
+		// Without `userLocation` the web_search tool geolocates the *caller's* IP,
+		// so a worker hosted in India returns city-level Indian results for every
+		// brand regardless of the target market.
+		const country = localeCountryCode(options);
 		tools.web_search = openai.tools.webSearch({
 			searchContextSize: "low",
+			...(country ? { userLocation: { type: "approximate" as const, country } } : {}),
 		}) as any;
 	}
+
+	const system = localeSystemPrompt(options);
 
 	const result = await generateText({
 		model: openai.responses(model),
 		prompt,
+		...(system ? { system } : {}),
 		toolChoice: Object.keys(tools).length > 0 ? "auto" : "none",
 		...(Object.keys(tools).length > 0 ? { tools } : {}),
 	});

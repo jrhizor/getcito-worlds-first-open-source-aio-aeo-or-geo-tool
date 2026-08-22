@@ -7,7 +7,7 @@ import { z } from "zod";
 import { requireAuthSession, requireOrgAccess } from "@/lib/auth/helpers";
 import { db } from "@workspace/lib/db/db";
 import { prompts, promptRuns, brands, competitors, SYSTEM_TAGS } from "@workspace/lib/db/schema";
-import { eq, and, desc, gte, count, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, count, sql } from "drizzle-orm";
 import {
 	getPromptsSummary,
 	getPromptsFirstEvaluatedAt,
@@ -17,8 +17,9 @@ import {
 	getPromptWebQueriesForMapping,
 	getPromptWebQueryCounts,
 } from "@/lib/postgres-read";
-import { generateDateRange } from "@/lib/chart-utils";
-import type { LookbackPeriod } from "@/lib/chart-utils";
+import { coerceLookbackPeriod, generateDateRange, resolveWindowEnd } from "@/lib/chart-utils";
+import { APP_TIMEZONE } from "@/lib/app-locale";
+import { getTimezoneLookbackRange } from "@/lib/timezone-utils";
 import { getEffectiveBrandedStatus, computeSystemTags } from "@workspace/lib/tag-utils";
 import { createMultiplePromptJobSchedulers } from "@/lib/job-scheduler";
 import {
@@ -113,25 +114,10 @@ export const getPromptsSummaryFn = createServerFn({ method: "GET" })
 			return { prompts: [], totalPrompts: 0, availableTags: [] };
 		}
 
-		// Compute date range from lookback parameter
-		const timezone = "UTC";
-		let fromDateStr: string | null = null;
-		let toDateStr: string | null = null;
-
-		const lookbackParam = data.lookback || "1m";
-		if (lookbackParam && lookbackParam !== "all") {
-			const toDate = new Date();
-			const fromDate = new Date();
-			switch (lookbackParam) {
-				case "1w": fromDate.setDate(fromDate.getDate() - 7); break;
-				case "1m": fromDate.setMonth(fromDate.getMonth() - 1); break;
-				case "3m": fromDate.setMonth(fromDate.getMonth() - 3); break;
-				case "6m": fromDate.setMonth(fromDate.getMonth() - 6); break;
-				case "1y": fromDate.setFullYear(fromDate.getFullYear() - 1); break;
-			}
-			fromDateStr = fromDate.toISOString().split("T")[0];
-			toDateStr = toDate.toISOString().split("T")[0];
-		}
+		// Compute date range from lookback parameter ("all" -> no bounds)
+		const timezone = APP_TIMEZONE;
+		const lookbackParam = coerceLookbackPeriod(data.lookback);
+		const { fromDateStr, toDateStr } = getTimezoneLookbackRange(lookbackParam, timezone);
 
 		// Parse webSearchEnabled
 		const webSearchEnabled = data.webSearchEnabled != null ? data.webSearchEnabled === "true" : undefined;
@@ -243,6 +229,9 @@ export const getPromptStatsFn = createServerFn({ method: "GET" })
 		z.object({
 			promptId: z.string(),
 			days: z.number().optional().default(7),
+			/** Last day of the window (`YYYY-MM-DD`); defaults to today. A custom
+			 *  lookback range sets it so the window doesn't run up to the present. */
+			endDate: z.string().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
@@ -257,13 +246,13 @@ export const getPromptStatsFn = createServerFn({ method: "GET" })
 		if (prompt.length === 0) throw new Error("Prompt not found");
 		await requireOrgAccess(session.user.id, prompt[0].brandId);
 
-		const fromDate = new Date();
+		const toDate = resolveWindowEnd(data.endDate);
+		const fromDate = new Date(toDate);
 		fromDate.setDate(fromDate.getDate() - data.days);
-		const toDate = new Date();
 		const fromDateStr = fromDate.toISOString().split("T")[0];
 		const toDateStr = toDate.toISOString().split("T")[0];
-		const timezone = "UTC";
-		const timeCondition = gte(promptRuns.createdAt, fromDate);
+		const timezone = APP_TIMEZONE;
+		const timeCondition = and(gte(promptRuns.createdAt, fromDate), lte(promptRuns.createdAt, toDate));
 
 		// Run aggregation queries in parallel. Web-query stats used to be computed
 		// here too — the Web Queries tab now goes through getQueryFanoutFn instead.
@@ -467,6 +456,9 @@ export const getPromptRunsFn = createServerFn({ method: "GET" })
 			page: z.number().optional().default(1),
 			limit: z.number().optional().default(10),
 			days: z.number().optional().default(7),
+			/** Last day of the window (`YYYY-MM-DD`); defaults to today. A custom
+			 *  lookback range sets it so the window doesn't run up to the present. */
+			endDate: z.string().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
@@ -478,17 +470,16 @@ export const getPromptRunsFn = createServerFn({ method: "GET" })
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, prompt.brandId);
 
-		const fromDate = new Date();
+		const toDate = resolveWindowEnd(data.endDate);
+		const fromDate = new Date(toDate);
 		fromDate.setDate(fromDate.getDate() - data.days);
+		const timeCondition = and(gte(promptRuns.createdAt, fromDate), lte(promptRuns.createdAt, toDate));
 
 		const offset = (data.page - 1) * data.limit;
 
 		const [runs, totalResult] = await Promise.all([
 			db.query.promptRuns.findMany({
-				where: and(
-					eq(promptRuns.promptId, data.promptId),
-					gte(promptRuns.createdAt, fromDate),
-				),
+				where: and(eq(promptRuns.promptId, data.promptId), timeCondition),
 				orderBy: desc(promptRuns.createdAt),
 				limit: data.limit,
 				offset,
@@ -496,7 +487,7 @@ export const getPromptRunsFn = createServerFn({ method: "GET" })
 			db
 				.select({ count: count() })
 				.from(promptRuns)
-				.where(and(eq(promptRuns.promptId, data.promptId), gte(promptRuns.createdAt, fromDate))),
+				.where(and(eq(promptRuns.promptId, data.promptId), timeCondition)),
 		]);
 
 		return {
@@ -601,36 +592,16 @@ export const getPromptChartDataFn = createServerFn({ method: "GET" })
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, data.brandId);
 
-		const timezone = data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-		const lookbackParam = (data.lookback || "1m") as LookbackPeriod;
-
-		// Calculate date range
-		let fromDateStr: string | null = null;
-		let toDateStr: string | null = null;
-		let startDate: Date;
-		let endDate: Date;
+		const timezone = data.timezone || APP_TIMEZONE;
+		const lookbackParam = coerceLookbackPeriod(data.lookback);
 
 		const now = new Date();
 		const todayStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
+		const { fromDateStr, toDateStr } = getTimezoneLookbackRange(lookbackParam, timezone, { now });
 
-		if (lookbackParam && lookbackParam !== "all") {
-			toDateStr = todayStr;
-			const fromDate = new Date(now);
-			switch (lookbackParam) {
-				case "1w": fromDate.setDate(fromDate.getDate() - 6); break;
-				case "1m": fromDate.setMonth(fromDate.getMonth() - 1); break;
-				case "3m": fromDate.setMonth(fromDate.getMonth() - 3); break;
-				case "6m": fromDate.setMonth(fromDate.getMonth() - 6); break;
-				case "1y": fromDate.setFullYear(fromDate.getFullYear() - 1); break;
-			}
-			fromDateStr = fromDate.toLocaleDateString("en-CA", { timeZone: timezone });
-			startDate = new Date(fromDateStr);
-			endDate = new Date(toDateStr);
-		} else {
-			toDateStr = todayStr;
-			startDate = new Date();
-			endDate = new Date(todayStr);
-		}
+		// "all" has no lower bound; its start date is derived from the data below.
+		let startDate = fromDateStr ? new Date(fromDateStr) : new Date();
+		const endDate = new Date(toDateStr ?? todayStr);
 
 		// Get metadata from DB
 		const [promptData, brandData, competitorsData] = await Promise.all([
@@ -775,23 +746,8 @@ export const getPromptWebQueryFn = createServerFn({ method: "GET" })
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, data.brandId);
 
-		const timezone = data.timezone || "UTC";
-		const now = new Date();
-		const todayStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
-		const toDateStr = todayStr;
-		let fromDateStr: string | null = null;
-
-		if (data.lookback && data.lookback !== "all") {
-			const fromDate = new Date(now);
-			switch (data.lookback) {
-				case "1w": fromDate.setDate(fromDate.getDate() - 6); break;
-				case "1m": fromDate.setMonth(fromDate.getMonth() - 1); break;
-				case "3m": fromDate.setMonth(fromDate.getMonth() - 3); break;
-				case "6m": fromDate.setMonth(fromDate.getMonth() - 6); break;
-				case "1y": fromDate.setFullYear(fromDate.getFullYear() - 1); break;
-			}
-			fromDateStr = fromDate.toLocaleDateString("en-CA", { timeZone: timezone });
-		}
+		const timezone = data.timezone || APP_TIMEZONE;
+		const { fromDateStr, toDateStr } = getTimezoneLookbackRange(coerceLookbackPeriod(data.lookback), timezone);
 
 		const webQueryData = await getPromptWebQueryCounts(
 			data.promptId,

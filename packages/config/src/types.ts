@@ -127,7 +127,9 @@ export interface OptimizeButtonProps {
 	brandId?: string;
 	selectedModel?: string;
 	availableModels?: string[];
-	lookback?: "1w" | "1m" | "3m" | "6m" | "1y" | "all";
+	/** A `lookback` filter value — a preset ("1w".."all") or a `custom:from:to` range.
+	 *  Only forwarded to `fetchWebQuery`, so it isn't narrowed here. */
+	lookback?: string;
 	promptName?: string;
 	promptId?: string;
 	parentName?: string;

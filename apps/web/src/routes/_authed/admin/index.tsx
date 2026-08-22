@@ -4,6 +4,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createFileRoute, Link, useRouteContext } from "@tanstack/react-router";
 import type { ClientConfig } from "@workspace/config/types";
+import { formatDateStr, formatDateTime } from "@/lib/app-locale";
 import { getAppName } from "@/lib/route-head";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table";
@@ -22,9 +23,9 @@ import {
 } from "@workspace/ui/components/dialog";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@workspace/ui/components/chart";
-import { Settings, TrendingUp, TrendingDown } from "lucide-react";
+import { Settings, Trash2, TrendingUp, TrendingDown } from "lucide-react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts";
-import { getAdminStatsFn, updateDelayOverrideFn, updateEnabledModelsFn } from "@/server/admin";
+import { adminDeleteBrandFn, getAdminStatsFn, updateDelayOverrideFn, updateEnabledModelsFn } from "@/server/admin";
 
 interface BrandStats {
 	id: string;
@@ -287,6 +288,81 @@ function EnabledModelsDialog({ brand, availableModels, onUpdate }: { brand: Bran
 	);
 }
 
+function DeleteBrandDialog({ brand, onUpdate }: { brand: BrandStats; onUpdate: () => void }) {
+	const [open, setOpen] = useState(false);
+	const [confirmName, setConfirmName] = useState("");
+	const [isDeleting, setIsDeleting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (open) {
+			setConfirmName("");
+			setError(null);
+		}
+	}, [open]);
+
+	const handleDelete = async () => {
+		setIsDeleting(true);
+		setError(null);
+		try {
+			await adminDeleteBrandFn({ data: { brandId: brand.id, confirmName } });
+			onUpdate();
+			setOpen(false);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to delete brand");
+		} finally {
+			setIsDeleting(false);
+		}
+	};
+
+	return (
+		<Dialog open={open} onOpenChange={setOpen}>
+			<DialogTrigger asChild>
+				<Button variant="outline" size="sm" className="cursor-pointer text-destructive hover:text-destructive">
+					<Trash2 className="h-4 w-4" />
+				</Button>
+			</DialogTrigger>
+			<DialogContent className="max-w-md">
+				<DialogHeader>
+					<DialogTitle>Delete {brand.name}?</DialogTitle>
+					<DialogDescription>
+						This permanently deletes the brand along with its prompts, runs, citations, competitors and
+						opportunities. It cannot be undone.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-2 py-4">
+					<Label htmlFor="confirm-name">
+						Type <strong>{brand.name}</strong> to confirm
+					</Label>
+					<Input
+						id="confirm-name"
+						value={confirmName}
+						onChange={(e) => setConfirmName(e.target.value)}
+						disabled={isDeleting}
+						placeholder={brand.name}
+					/>
+					{error && <p className="text-sm text-destructive">{error}</p>}
+				</div>
+				<DialogFooter>
+					<div className="flex gap-2 ml-auto">
+						<Button variant="outline" onClick={() => setOpen(false)} disabled={isDeleting} className="cursor-pointer">
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							onClick={handleDelete}
+							disabled={isDeleting || confirmName.trim() !== brand.name.trim()}
+							className="cursor-pointer"
+						>
+							{isDeleting ? "Deleting..." : "Delete brand"}
+						</Button>
+					</div>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 function ActivityIndicator({ added, removed }: { added: number; removed: number }) {
 	if (added === 0 && removed === 0) {
 		return <div className="flex items-center text-muted-foreground"><span className="w-4 mr-1" /><span>0</span></div>;
@@ -367,15 +443,10 @@ function AdminDashboard() {
 
 	const brandsYAxisMax = Math.max(...brandsOverTime.map((d) => d.count), ...activeBrandsOverTime.map((d) => d.count), 0);
 
-	const dateFormatter = (value: string) => {
-		const date = new Date(value);
-		return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-	};
+	const dateFormatter = (value: string) => formatDateStr(value, { month: "short", day: "numeric" });
 
-	const tooltipLabelFormatter = (value: ReactNode) => {
-		const date = new Date(String(value));
-		return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-	};
+	const tooltipLabelFormatter = (value: ReactNode) =>
+		formatDateStr(String(value), { month: "long", day: "numeric", year: "numeric" });
 
 	return (
 		<div className="space-y-8">
@@ -524,7 +595,7 @@ function AdminDashboard() {
 											<TableCell className="text-right">{brand.promptRuns30Days?.toLocaleString() || 0}</TableCell>
 											<TableCell>
 												{brand.lastPromptRunAt ? (
-													<span className={`text-sm ${isOverdue ? "text-red-600 font-semibold" : ""}`}>{new Date(brand.lastPromptRunAt).toLocaleDateString()}</span>
+													<span className={`text-sm ${isOverdue ? "text-red-600 font-semibold" : ""}`}>{formatDateTime(brand.lastPromptRunAt, { dateStyle: "medium" })}</span>
 												) : (
 													<span className="text-muted-foreground">Never</span>
 												)}
@@ -537,8 +608,9 @@ function AdminDashboard() {
 											</TableCell>
 											<TableCell>
 												<div className="flex gap-2">
-													<DelayOverrideDialog brand={brand} onUpdate={fetchBrandStats} />
+															<DelayOverrideDialog brand={brand} onUpdate={fetchBrandStats} />
 													<EnabledModelsDialog brand={brand} availableModels={availableModels} onUpdate={fetchBrandStats} />
+													<DeleteBrandDialog brand={brand} onUpdate={fetchBrandStats} />
 												</div>
 											</TableCell>
 										</TableRow>

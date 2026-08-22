@@ -24,7 +24,8 @@ import { ListPagination } from "@/components/list-pagination";
 import { CitationsDisplay, type CitationData } from "@/components/citations-display";
 import { LookbackSelector, useLookbackPeriod } from "@/components/lookback-selector";
 import { InfoTip, QueryWordsSection, UnknownQueriesNote, VariationsList, type VariationModelCount } from "@/components/fanout-sections";
-import { getDaysFromLookback } from "@/lib/chart-utils";
+import { formatDateTime } from "@/lib/app-locale";
+import { getDaysFromLookback, parseCustomLookback } from "@/lib/chart-utils";
 import { getModelDisplayName } from "@/lib/utils";
 import { promptKeywords } from "@/lib/fanout-analysis";
 import { useBrand, useCompetitors } from "@/hooks/use-brands";
@@ -85,6 +86,8 @@ function PromptHistoryPage() {
 
 	const lookback = useLookbackPeriod();
 	const days = getDaysFromLookback(lookback);
+	// A custom range ends on its own last day rather than today.
+	const endDate = parseCustomLookback(lookback)?.to;
 
 	const activeTab = Route.useSearch({ select: (s) => s.tab ?? "mentions" });
 	const navigate = Route.useNavigate();
@@ -106,13 +109,14 @@ function PromptHistoryPage() {
 
 	// Web Queries fetches its own data (useQueryFanout) — stats only back Mentions/Citations.
 	const shouldFetchStats = visitedTabs.has("mentions") || visitedTabs.has("citations");
-	const { isLoading: isStatsLoading, isError: isStatsError, aggregations } = usePromptStats(shouldFetchStats ? promptId : "", { days });
+	const { isLoading: isStatsLoading, isError: isStatsError, aggregations } = usePromptStats(shouldFetchStats ? promptId : "", { days, endDate });
 
 	const shouldFetchRuns = visitedTabs.has("responses");
 	const { runs, pagination, isLoading: isRunsLoading, isError: isRunsError } = usePromptRunsOnly(shouldFetchRuns ? promptId : "", {
 		page: currentPage,
 		limit: 15,
 		days,
+		endDate,
 	});
 
 	// Fetch prompt metadata
@@ -230,7 +234,7 @@ function PromptHistoryPage() {
 								<span className="text-muted-foreground">
 									Next run:{" "}
 									<span className="text-foreground tabular-nums">
-										{new Date(promptMeta.nextRunAt).toLocaleString(undefined, {
+										{formatDateTime(promptMeta.nextRunAt, {
 											month: "short",
 											day: "numeric",
 											hour: "numeric",
@@ -552,7 +556,7 @@ function ResponsesTab({
 	onPageChange: (page: number) => void;
 	brandName?: string;
 }) {
-	const formatDate = (dateString: string) => new Date(dateString).toLocaleString(undefined, { timeZoneName: "short" });
+	const formatDate = (dateString: string) => formatDateTime(dateString, { timeZoneName: "short" });
 
 	const formatRawOutput = (rawOutput: any) => (typeof rawOutput === "string" ? rawOutput : JSON.stringify(rawOutput, null, 2));
 

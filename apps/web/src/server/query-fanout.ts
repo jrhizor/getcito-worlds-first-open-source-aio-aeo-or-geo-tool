@@ -19,6 +19,7 @@ import { LOOKBACK, resolveRange } from "@/server/analysis";
 import { getFanoutBreakdown, getFanoutModelTotals, getFanoutPromptTotals } from "@/lib/postgres-read";
 import { resolveFilteredPrompts } from "@/server/prompt-resolution";
 import { computeFanoutAnalysis, type FanoutAnalysis } from "@/lib/fanout-analysis";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 
 export interface QueryFanoutResponse extends FanoutAnalysis {
 	brandName: string;
@@ -55,7 +56,7 @@ export const getQueryFanoutFn = createServerFn({ method: "GET" })
 			search: z.string().optional(),
 			/** Scope to a single prompt (prompt-details Web Queries tab) — lists come back uncapped. */
 			promptId: z.string().optional(),
-			timezone: z.string().default("UTC"),
+			timezone: z.string().default(APP_TIMEZONE),
 		}),
 	)
 	.handler(async ({ data }): Promise<QueryFanoutResponse> => {

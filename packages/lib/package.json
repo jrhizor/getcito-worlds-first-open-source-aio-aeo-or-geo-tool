@@ -1,6 +1,6 @@
 {
   "name": "@workspace/lib",
-  "version": "0.2.14",
+  "version": "9.1.0",
   "private": true,
   "license": "MIT",
   "scripts": {
@@ -26,6 +26,8 @@
     "./tag-utils": "./src/tag-utils.ts",
     "./website-excerpt": "./src/website-excerpt.ts",
     "./report-metrics": "./src/report-metrics.ts",
+    "./run-backoff": "./src/run-backoff.ts",
+    "./expedite": "./src/expedite.ts",
     "./providers": "./src/providers/index.ts",
     "./providers/models": "./src/providers/models.ts",
     "./providers/types": "./src/providers/types.ts"
