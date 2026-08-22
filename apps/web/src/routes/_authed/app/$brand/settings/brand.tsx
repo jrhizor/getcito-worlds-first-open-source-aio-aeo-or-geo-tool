@@ -3,27 +3,36 @@
  *
  * Form to edit brand name, website, additional domains, and aliases.
  */
-import { useState, useCallback, useEffect } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+
+import { IconInfoCircle } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getAppName, getBrandName, buildTitle } from "@/lib/route-head";
+import { createFileRoute, useNavigate, useRouteContext } from "@tanstack/react-router";
+import type { ClientConfig } from "@workspace/config/types";
+import { DATAFORSEO_LANGUAGES } from "@workspace/lib/languages";
+import { DATAFORSEO_LOCATION_LANGUAGES } from "@workspace/lib/location-languages";
+import { TARGET_MARKETS } from "@workspace/lib/locations";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@workspace/ui/components/select";
+import { TagsInput } from "@workspace/ui/components/tags-input";
+import { Textarea } from "@workspace/ui/components/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip";
+import { useCallback, useState } from "react";
+import { WebLogo } from "@/components/web-logo";
 import { useBrand } from "@/hooks/use-brands";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
-import { updateBrandFn, deleteBrandFn } from "@/server/brands";
-import { useRouteContext, useNavigate } from "@tanstack/react-router";
-import type { ClientConfig } from "@workspace/config/types";
 import { citationKeys } from "@/hooks/use-citations";
 import { dashboardKeys } from "@/hooks/use-dashboard-summary";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@workspace/ui/components/tooltip";
-import { IconInfoCircle } from "@tabler/icons-react";
-import { TagsInput } from "@workspace/ui/components/tags-input";
 import { cleanAndValidateDomain } from "@/lib/domain-categories";
-import { DATAFORSEO_LOCATIONS } from "@workspace/lib/locations";
-import { DATAFORSEO_LANGUAGES } from "@workspace/lib/languages";
-import { DATAFORSEO_LOCATION_LANGUAGES } from "@workspace/lib/location-languages";
+import { buildTitle, getAppName, getBrandName } from "@/lib/route-head";
+import { deleteBrandFn, updateBrandFn } from "@/server/brands";
 
 export const Route = createFileRoute("/_authed/app/$brand/settings/brand")({
 	head: ({ matches, match }) => {
@@ -45,44 +54,60 @@ function BrandSettingsPage() {
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState("");
 	const [success, setSuccess] = useState("");
-	const [additionalDomains, setAdditionalDomains] = useState<string[]>([]);
-	const [aliases, setAliases] = useState<string[]>([]);
-	const [targetMarket, setTargetMarket] = useState<string>("");
-	const [targetLanguage, setTargetLanguage] = useState<string>("");
+	// The editable fields are derived from the loaded brand, with an override that
+	// holds only what the user has changed. Mirroring server values into state via
+	// an effect is what broke this form twice: the query refetches on window focus,
+	// reconnect and 30s staleness, so the effect either clobbered unsaved edits or,
+	// once guarded, stopped applying values that arrived after the guard was set.
+	// Deriving has no such ordering: whatever the server last sent shows up unless
+	// the user has typed over it. `null` means "not edited", "" is a real value.
+	const [domainsOverride, setDomainsOverride] = useState<string[] | null>(null);
+	const [aliasesOverride, setAliasesOverride] = useState<string[] | null>(null);
+	const [marketOverride, setMarketOverride] = useState<string | null>(null);
+	const [languageOverride, setLanguageOverride] = useState<string | null>(null);
+	const [descriptionOverride, setDescriptionOverride] = useState<string | null>(null);
 	const [isDeleting, setIsDeleting] = useState(false);
 	const navigate = useNavigate();
 	const context = useRouteContext({ strict: false }) as { clientConfig?: ClientConfig };
 	const isReadOnly = context.clientConfig?.features.readOnly;
 
-	useEffect(() => {
-		if (brand) {
-			setAdditionalDomains(brand.additionalDomains || []);
-			setAliases(brand.aliases || []);
-			setTargetMarket(brand.targetMarket || "");
-			setTargetLanguage(brand.targetLanguage || "");
-		}
-	}, [brand?.updatedAt]);
+	const additionalDomains = domainsOverride ?? brand?.additionalDomains ?? [];
+	const aliases = aliasesOverride ?? brand?.aliases ?? [];
+	const targetMarket = marketOverride ?? brand?.targetMarket ?? "";
+	const targetLanguage = languageOverride ?? brand?.targetLanguage ?? "";
+	const shortDescription = descriptionOverride ?? brand?.shortDescription ?? "";
+
+	/** Drop the overrides so the freshly saved server values take over again. */
+	const clearOverrides = () => {
+		setDomainsOverride(null);
+		setAliasesOverride(null);
+		setMarketOverride(null);
+		setLanguageOverride(null);
+		setDescriptionOverride(null);
+	};
 
 	const validateDomain = useCallback((val: string): true | string => {
 		const cleaned = cleanAndValidateDomain(val);
 		if (!cleaned) return `"${val}" is not a valid domain`;
 		return true;
 	}, []);
-	const handleAliasesChange = useCallback((values: string[]) => setAliases(values), []);
+	const handleAliasesChange = useCallback((values: string[]) => setAliasesOverride(values), []);
+	const handleDomainsChange = useCallback((values: string[]) => setDomainsOverride(values), []);
 
 	const handleTargetMarketChange = (val: string) => {
-		setTargetMarket(val);
+		setMarketOverride(val);
 		if (targetLanguage) {
 			const validLangs = DATAFORSEO_LOCATION_LANGUAGES[val] || DATAFORSEO_LANGUAGES;
-			if (!validLangs.some(l => l.name === targetLanguage)) {
-				setTargetLanguage("");
+			if (!validLangs.some((l) => l.name === targetLanguage)) {
+				setLanguageOverride("");
 			}
 		}
 	};
 
-	const availableLanguages = targetMarket && DATAFORSEO_LOCATION_LANGUAGES[targetMarket] 
-		? DATAFORSEO_LOCATION_LANGUAGES[targetMarket] 
-		: DATAFORSEO_LANGUAGES;
+	const availableLanguages =
+		targetMarket && DATAFORSEO_LOCATION_LANGUAGES[targetMarket]
+			? DATAFORSEO_LOCATION_LANGUAGES[targetMarket]
+			: DATAFORSEO_LANGUAGES;
 
 	if (isLoading) {
 		return (
@@ -122,6 +147,7 @@ function BrandSettingsPage() {
 					website,
 					targetMarket: targetMarket || undefined,
 					targetLanguage: targetLanguage || undefined,
+					shortDescription: shortDescription || undefined,
 					additionalDomains,
 					aliases,
 				},
@@ -132,6 +158,8 @@ function BrandSettingsPage() {
 			queryClient.invalidateQueries({ queryKey: dashboardKeys.all });
 
 			setSuccess("Brand details updated successfully!");
+			// Saved values are now the server's; drop the local edits.
+			clearOverrides();
 			await revalidate();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "An error occurred");
@@ -141,13 +169,17 @@ function BrandSettingsPage() {
 	};
 
 	const handleDelete = async () => {
-		if (!confirm(`Are you sure you want to permanently delete "${brand.name}" and all of its data? This cannot be undone.`)) {
+		if (
+			!confirm(
+				`Are you sure you want to permanently delete "${brand.name}" and all of its data? This cannot be undone.`,
+			)
+		) {
 			return;
 		}
 
 		setIsDeleting(true);
 		setError("");
-		
+
 		try {
 			await deleteBrandFn({ data: { brandId: brand.id } });
 			queryClient.invalidateQueries({ queryKey: dashboardKeys.all });
@@ -160,9 +192,12 @@ function BrandSettingsPage() {
 
 	return (
 		<div className="space-y-6 max-w-2xl">
-			<div>
-				<h1 className="text-3xl font-bold">Brand</h1>
-				<p className="text-muted-foreground">Manage your brand name and website</p>
+			<div className="flex items-center gap-4">
+				{brand.website && <WebLogo domain={brand.website} size={48} />}
+				<div>
+					<h1 className="text-3xl font-bold">Brand</h1>
+					<p className="text-muted-foreground">Manage your brand name, website, and details</p>
+				</div>
 			</div>
 
 			<form action={handleSubmit} className="space-y-6">
@@ -196,6 +231,20 @@ function BrandSettingsPage() {
 					</div>
 
 					<div className="space-y-2">
+						<Label htmlFor="shortDescription">Short Description</Label>
+						<Textarea
+							id="shortDescription"
+							name="shortDescription"
+							placeholder="E.g. A fast-growing AI startup focused on search..."
+							value={shortDescription}
+							onChange={(e) => setDescriptionOverride(e.target.value)}
+							disabled={isSubmitting}
+							className="min-h-[100px]"
+						/>
+						<p className="text-xs text-muted-foreground">Briefly describe what your brand does.</p>
+					</div>
+
+					<div className="space-y-2">
 						<Label htmlFor="targetMarket">Target Market</Label>
 						<Select value={targetMarket} onValueChange={handleTargetMarketChange} disabled={isSubmitting}>
 							<SelectTrigger id="targetMarket">
@@ -203,7 +252,7 @@ function BrandSettingsPage() {
 							</SelectTrigger>
 							<SelectContent>
 								<SelectGroup>
-									{DATAFORSEO_LOCATIONS.map((location) => (
+									{TARGET_MARKETS.map((location) => (
 										<SelectItem key={location} value={location}>
 											{location}
 										</SelectItem>
@@ -216,7 +265,7 @@ function BrandSettingsPage() {
 
 					<div className="space-y-2">
 						<Label htmlFor="targetLanguage">Target Language</Label>
-						<Select value={targetLanguage} onValueChange={setTargetLanguage} disabled={isSubmitting || !targetMarket}>
+						<Select value={targetLanguage} onValueChange={setLanguageOverride} disabled={isSubmitting || !targetMarket}>
 							<SelectTrigger id="targetLanguage">
 								<SelectValue placeholder={targetMarket ? "Select target language" : "Select a market first"} />
 							</SelectTrigger>
@@ -241,13 +290,15 @@ function BrandSettingsPage() {
 									<IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
 								</TooltipTrigger>
 								<TooltipContent className="max-w-xs text-xs font-normal">
-									Other domains your brand owns (e.g. blog.example.com, shop.example.com). Citations from these domains will be counted as your brand&apos;s citations. <strong>Updates retroactively</strong> &mdash; existing citations will be reclassified immediately.
+									Other domains your brand owns (e.g. blog.example.com, shop.example.com). Citations from these domains
+									will be counted as your brand&apos;s citations. <strong>Updates retroactively</strong> &mdash;
+									existing citations will be reclassified immediately.
 								</TooltipContent>
 							</Tooltip>
 						</Label>
 						<TagsInput
 							value={additionalDomains}
-							onValueChange={setAdditionalDomains}
+							onValueChange={handleDomainsChange}
 							placeholder="Add domain..."
 							searchPlaceholder="Add domain..."
 							maxItems={10}
@@ -264,7 +315,9 @@ function BrandSettingsPage() {
 									<IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
 								</TooltipTrigger>
 								<TooltipContent className="max-w-xs text-xs font-normal">
-									Alternative names for your brand (sub-brands, product lines, abbreviations). Used for mention detection in <strong>future</strong> prompt runs only &mdash; does not apply retroactively to past results.
+									Alternative names for your brand (sub-brands, product lines, abbreviations). Used for mention
+									detection in <strong>future</strong> prompt runs only &mdash; does not apply retroactively to past
+									results.
 								</TooltipContent>
 							</Tooltip>
 						</Label>
@@ -292,13 +345,10 @@ function BrandSettingsPage() {
 				<div className="mt-12 pt-6 border-t border-border">
 					<h3 className="text-lg font-medium text-destructive mb-2">Danger Zone</h3>
 					<p className="text-sm text-muted-foreground mb-4">
-						Permanently delete this brand and all of its associated data, including prompts and run history. This action cannot be undone.
+						Permanently delete this brand and all of its associated data, including prompts and run history. This action
+						cannot be undone.
 					</p>
-					<Button 
-						variant="destructive" 
-						onClick={handleDelete}
-						disabled={isSubmitting || isDeleting}
-					>
+					<Button variant="destructive" onClick={handleDelete} disabled={isSubmitting || isDeleting}>
 						{isDeleting ? "Deleting..." : "Delete Brand"}
 					</Button>
 				</div>

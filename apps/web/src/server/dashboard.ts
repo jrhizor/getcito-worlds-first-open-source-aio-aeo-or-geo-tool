@@ -9,6 +9,9 @@ import { db } from "@workspace/lib/db/db";
 import { prompts, competitors, brands } from "@workspace/lib/db/schema";
 import { eq, and, count } from "drizzle-orm";
 import { generateDateRange, getDaysFromLookback, applyPerPromptLVCF, applyPerPromptCitationLVCF, type LookbackPeriod } from "@/lib/chart-utils";
+import { APP_TIMEZONE } from "@/lib/app-locale";
+import { getTimezoneLookbackRange } from "@/lib/timezone-utils";
+import { LOOKBACK } from "@/server/analysis";
 import {
 	getDashboardSummary,
 	getPerPromptVisibilityTimeSeries,
@@ -49,26 +52,19 @@ export const getDashboardSummaryFn = createServerFn({ method: "GET" })
 	.validator(
 		z.object({
 			brandId: z.string(),
-			lookback: z.enum(["1w", "1m", "3m", "6m", "1y", "all"]).default("1m"),
+			lookback: LOOKBACK.default("1m"),
 		}),
 	)
 	.handler(async ({ data }): Promise<DashboardSummaryResponse> => {
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, data.brandId);
 
-		const lookbackParam = data.lookback as LookbackPeriod;
-		const timezone = "UTC";
+		const lookbackParam = data.lookback;
+		const timezone = APP_TIMEZONE;
 
-		let fromDateStr: string | null = null;
-		let toDateStr: string | null = null;
-
-		if (lookbackParam !== "all") {
-			const toDate = new Date();
-			const fromDate = new Date(toDate);
-			fromDate.setDate(fromDate.getDate() - getDaysFromLookback(lookbackParam));
-			fromDateStr = fromDate.toISOString().split("T")[0];
-			toDateStr = toDate.toISOString().split("T")[0];
-		}
+		// "all" resolves to null bounds (no date filter); every other lookback,
+		// including a custom range, resolves to concrete inclusive dates.
+		const { fromDateStr, toDateStr } = getTimezoneLookbackRange(lookbackParam, timezone);
 
 		// Get brand info, competitors, and prompts from PostgreSQL
 		const [brandResult, competitorsList, enabledPromptsResult, totalPromptsResult] = await Promise.all([
@@ -110,6 +106,9 @@ export const getDashboardSummaryFn = createServerFn({ method: "GET" })
 		if (lookbackParam === "all" && rawDates.length > 0) {
 			startDate = new Date(rawDates[0]);
 			endDate = new Date(rawDates[rawDates.length - 1]);
+		} else if (fromDateStr && toDateStr) {
+			startDate = new Date(fromDateStr);
+			endDate = new Date(toDateStr);
 		} else {
 			const daysToSubtract = getDaysFromLookback(lookbackParam);
 			const currentDateInTimezone = new Date().toLocaleDateString("en-CA", { timeZone: timezone });

@@ -1,10 +1,6 @@
-import { type ReactNode, useEffect, useRef, useState, useMemo } from "react";
 import { useSearch } from "@tanstack/react-router";
-import { SiOpenai, SiGoogle, SiAnthropic, SiPerplexity, SiX, SiGithubcopilot, SiMistralai } from "react-icons/si";
-import { MdSelectAll } from "react-icons/md";
-import { Sparkles } from "lucide-react";
+import { getModelMeta } from "@workspace/lib/providers/models";
 import { Button } from "@workspace/ui/components/button";
-import { Input } from "@workspace/ui/components/input";
 import { Checkbox } from "@workspace/ui/components/checkbox";
 import {
 	DropdownMenu,
@@ -13,13 +9,18 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import { Input } from "@workspace/ui/components/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover";
-import { ChevronDown, Search, Tag as TagIcon, Clock, X } from "lucide-react";
-import { type LookbackPeriod, getDefaultLookbackPeriod } from "@/lib/chart-utils";
+import { CalendarDays as CalendarIcon, ChevronDown, Clock, Search, Sparkles, Tag as TagIcon, X } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { MdSelectAll } from "react-icons/md";
+import { SiAnthropic, SiGithubcopilot, SiGoogle, SiMistralai, SiOpenai, SiPerplexity, SiX } from "react-icons/si";
+import { CustomRangeCalendar, formatCustomRangeLabel } from "@/components/custom-range-calendar";
 import { useBrand } from "@/hooks/use-brands";
-import { getModelMeta } from "@workspace/lib/providers/models";
+import { getDefaultLookbackPeriod, type LookbackPeriod, parseCustomLookback } from "@/lib/chart-utils";
+
 export { ALL_MODELS_VALUE, getAvailableModels } from "@/lib/model-filter";
-import { ALL_MODELS_VALUE } from "@/lib/model-filter";
+
 // Filter state lives in the URL, validated by the `$brand` layout route's
 // search schema (see `validateBrandFilterSearch`). The widgets here keep
 // per-key `useSearch` selectors so one filter's click doesn't re-render the
@@ -27,12 +28,8 @@ import { ALL_MODELS_VALUE } from "@/lib/model-filter";
 // The router commits search updates synchronously within the interaction, so
 // no optimistic layer is needed (nuqs throttled URL writes, which is why the
 // old code wrapped every change in `useOptimistic` + `startTransition`).
-import {
-	useFilterNavigate,
-	splitTags,
-	joinTags,
-	coerceLookback,
-} from "@/hooks/use-list-filters";
+import { coerceLookback, joinTags, splitTags, useFilterNavigate } from "@/hooks/use-list-filters";
+import { ALL_MODELS_VALUE } from "@/lib/model-filter";
 
 /** "all" is the no-filter sentinel; any other string is a concrete model id
  *  from the deployment's `SCRAPE_TARGETS`. Deployments can configure arbitrary
@@ -71,7 +68,6 @@ export function labelForModel(model: string): string {
 	return getModelMeta(model).label;
 }
 
-
 const LOOKBACK_OPTIONS: { value: LookbackPeriod; label: string }[] = [
 	{ value: "1w", label: "Last 7 days" },
 	{ value: "1m", label: "Last 30 days" },
@@ -82,6 +78,8 @@ const LOOKBACK_OPTIONS: { value: LookbackPeriod; label: string }[] = [
 ];
 
 function getLookbackLabel(lookback: LookbackPeriod): string {
+	const custom = parseCustomLookback(lookback);
+	if (custom) return formatCustomRangeLabel(custom.from, custom.to);
 	return LOOKBACK_OPTIONS.find((o) => o.value === lookback)?.label ?? lookback;
 }
 
@@ -154,11 +152,7 @@ export function ModelDropdown({ availableModels }: { availableModels: string[] }
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<FilterTriggerButton
-					icon={iconForModel(selected)}
-					label={labelForModel(selected)}
-					active={isFiltered}
-				/>
+				<FilterTriggerButton icon={iconForModel(selected)} label={labelForModel(selected)} active={isFiltered} />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-48">
 				<DropdownMenuRadioGroup value={selected} onValueChange={handleChange}>
@@ -178,41 +172,72 @@ export function ModelDropdown({ availableModels }: { availableModels: string[] }
 // Lookback dropdown — subscribes to only the "lookback" URL key.
 // ------------------------------------------------------------------
 
+// A Popover rather than a DropdownMenu: the custom-range calendar needs arrow keys
+// for day navigation, which a menu's own roving focus would swallow.
 export function LookbackDropdown() {
 	const { brand } = useBrand();
-	const defaultLookback = useMemo(
-		() => getDefaultLookbackPeriod(brand?.earliestDataDate),
-		[brand?.earliestDataDate],
-	);
+	const defaultLookback = useMemo(() => getDefaultLookbackPeriod(brand?.earliestDataDate), [brand?.earliestDataDate]);
 	const urlLookback = useSearch({ strict: false, select: (s) => s.lookback });
 	const setFilters = useFilterNavigate();
 	const selected = coerceLookback(urlLookback, defaultLookback);
+	const isCustom = Boolean(parseCustomLookback(selected));
+
+	const [open, setOpen] = useState(false);
+	const [showCalendar, setShowCalendar] = useState(false);
 
 	const handleChange = (next: LookbackPeriod) => {
 		setFilters({ lookback: next === defaultLookback ? undefined : next });
+		setOpen(false);
+		setShowCalendar(false);
 	};
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+		<Popover
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (!next) setShowCalendar(false);
+			}}
+			modal={false}
+		>
+			<PopoverTrigger asChild>
 				<FilterTriggerButton
 					icon={<Clock className="size-3.5" />}
 					label={getLookbackLabel(selected)}
+					active={isCustom}
 				/>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" className="w-48">
-				<DropdownMenuRadioGroup
-					value={selected}
-					onValueChange={(v) => handleChange(v as LookbackPeriod)}
-				>
-					{LOOKBACK_OPTIONS.map((opt) => (
-						<DropdownMenuRadioItem key={opt.value} value={opt.value} className="cursor-pointer">
-							{opt.label}
-						</DropdownMenuRadioItem>
-					))}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-auto p-0">
+				{showCalendar ? (
+					<CustomRangeCalendar selected={selected} onApply={handleChange} />
+				) : (
+					<div className="w-48 py-1">
+						{LOOKBACK_OPTIONS.map((opt) => (
+							<button
+								key={opt.value}
+								type="button"
+								onClick={() => handleChange(opt.value)}
+								className={`w-full px-3 py-1.5 text-left text-sm cursor-pointer ${
+									selected === opt.value ? "bg-accent" : "hover:bg-muted"
+								}`}
+							>
+								{opt.label}
+							</button>
+						))}
+						<button
+							type="button"
+							onClick={() => setShowCalendar(true)}
+							className={`mt-1 flex w-full items-center gap-2 border-t px-3 pt-2 pb-1.5 text-left text-sm cursor-pointer ${
+								isCustom ? "bg-accent" : "hover:bg-muted"
+							}`}
+						>
+							<CalendarIcon className="size-3.5 text-muted-foreground" />
+							Custom range…
+						</button>
+					</div>
+				)}
+			</PopoverContent>
+		</Popover>
 	);
 }
 

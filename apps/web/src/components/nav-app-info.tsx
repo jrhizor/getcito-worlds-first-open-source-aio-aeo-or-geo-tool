@@ -1,15 +1,7 @@
 import { IconBrandGithub, IconWorld } from "@tabler/icons-react";
-import { useRouteContext } from "@tanstack/react-router";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip";
-import type { ClientConfig } from "@workspace/config/types";
 
 export function NavAppInfo() {
-	const context = useRouteContext({ strict: false }) as { clientConfig?: ClientConfig };
-	const mode = context.clientConfig?.mode;
-
-	// Whitelabel deployments hide the version/website/github links.
-	if (mode === "whitelabel") return null;
-
 	const linkClass =
 		"text-muted-foreground hover:text-foreground inline-flex size-7 items-center justify-center rounded-md transition-colors";
 
@@ -26,7 +18,7 @@ export function NavAppInfo() {
 			<div className="flex items-center gap-1">
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<a href="https://www.Getcito.com/" target="_blank" className={linkClass}>
+						<a href="https://www.Getcito.com/" target="_blank" className={linkClass} rel="noopener">
 							<IconWorld className="size-4" />
 						</a>
 					</TooltipTrigger>
@@ -34,7 +26,12 @@ export function NavAppInfo() {
 				</Tooltip>
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<a href="https://github.com/ai-search-guru/getcito-worlds-first-open-source-aio-aeo-or-geo-tool" target="_blank" rel="noreferrer" className={linkClass}>
+						<a
+							href="https://github.com/ai-search-guru/getcito-worlds-first-open-source-aio-aeo-or-geo-tool"
+							target="_blank"
+							rel="noreferrer"
+							className={linkClass}
+						>
 							<IconBrandGithub className="size-4" />
 						</a>
 					</TooltipTrigger>

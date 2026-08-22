@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getQueryFanoutFn } from "@/server/query-fanout";
 import type { LookbackPeriod } from "@/lib/chart-utils";
 
@@ -31,7 +32,7 @@ export function useQueryFanout(brandId?: string, filters?: QueryFanoutFilters) {
 					model: filters?.model,
 					tags: filters?.tags?.join(","),
 					promptId: filters?.promptId,
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					timezone: APP_TIMEZONE,
 				},
 			}),
 		enabled: !!resolvedBrandId,

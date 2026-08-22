@@ -8,13 +8,14 @@ import { requireAuthSession, requireOrgAccess, listUserOrganizations } from "@/l
 import { evaluateRequireCanCreateBrands } from "@/lib/auth/policies";
 import { getDeployment } from "@/lib/config/server";
 import { db } from "@workspace/lib/db/db";
-import { brands, prompts, competitors, promptRuns, citations, brandOpportunities, organization, type BrandWithPrompts, type Brand } from "@workspace/lib/db/schema";
+import { brands, prompts, competitors, type BrandWithPrompts, type Brand } from "@workspace/lib/db/schema";
 import { provisionAdditionalLocalOrg } from "@workspace/lib/db/provisioning";
 import { eq, and, count, sql } from "drizzle-orm";
 import { MAX_COMPETITORS } from "@workspace/lib/constants";
 import { cleanAndValidateDomain } from "@/lib/domain-categories";
 import { validateWebsiteUrl } from "@/lib/brand-website";
 import { normalizeBrandUpdate } from "@/lib/brand-settings";
+import { deleteBrandCascade } from "@/server/brand-cascade";
 import { parseScrapeTargets, selectTargetsForBrand } from "@workspace/lib/providers";
 import type { ModelConfig } from "@workspace/lib/providers";
 
@@ -254,6 +255,7 @@ export const updateBrandFn = createServerFn({ method: "POST" })
 			website: z.string().optional(),
 			targetMarket: z.string().optional(),
 			targetLanguage: z.string().optional(),
+			shortDescription: z.string().optional(),
 			additionalDomains: z.array(z.string()).optional(),
 			aliases: z.array(z.string()).optional(),
 		}),
@@ -274,7 +276,8 @@ export const updateBrandFn = createServerFn({ method: "POST" })
 		const updateData = { 
 			...normalized.updates, 
 			...(data.targetMarket !== undefined && { targetMarket: data.targetMarket }),
-			...(data.targetLanguage !== undefined && { targetLanguage: data.targetLanguage })
+			...(data.targetLanguage !== undefined && { targetLanguage: data.targetLanguage }),
+			...(data.shortDescription !== undefined && { shortDescription: data.shortDescription })
 		};
 
 		const result = await db
@@ -471,7 +474,6 @@ export const createCompetitorFromDomainFn = createServerFn({ method: "POST" })
 		return result;
 	});
 
-
 /**
  * Delete a brand and all associated data
  */
@@ -481,16 +483,7 @@ export const deleteBrandFn = createServerFn({ method: "POST" })
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, data.brandId);
 
-		await db.transaction(async (tx) => {
-			await tx.delete(citations).where(eq(citations.brandId, data.brandId));
-			await tx.delete(promptRuns).where(eq(promptRuns.brandId, data.brandId));
-			await tx.delete(prompts).where(eq(prompts.brandId, data.brandId));
-			await tx.delete(competitors).where(eq(competitors.brandId, data.brandId));
-			await tx.delete(brandOpportunities).where(eq(brandOpportunities.brandId, data.brandId));
-			await tx.delete(brands).where(eq(brands.id, data.brandId));
-			await tx.delete(organization).where(eq(organization.id, data.brandId));
-			await tx.delete(organization).where(eq(organization.id, data.brandId));
-		});
+		await deleteBrandCascade(data.brandId);
 
 		return { success: true };
 	});

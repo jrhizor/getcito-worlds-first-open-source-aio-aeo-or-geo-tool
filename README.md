@@ -79,9 +79,11 @@ It is a free alternative to hosted tools like Profound, Peec, and Otterly.
 - 🔎 **Citation & mention analysis** — extract which brands, domains, and sources each AI response cites.
 - 🏷️ **Brand & competitor benchmarking** — track your brand alongside competitors on the same prompts.
 - 🤖 **Multiple AI surfaces** — ChatGPT, Google AI Mode, Google AI Overview, Perplexity, Gemini, Copilot, Grok.
-- 🔌 **Pluggable scrapers & LLM providers** — BrightData, Oxylabs, Olostep, DataForSEO for scraping; OpenRouter, Anthropic, OpenAI, Mistral for direct LLM calls.
+- 🔌 **Pluggable scrapers & LLM providers** — BrightData, Oxylabs, Olostep, Cloro, and DataForSEO for scraping; OpenRouter, Anthropic, OpenAI, Mistral, and Azure AI Foundry for direct LLM calls.
 - 📄 **Reports** — background report generation over collected data.
 - ⚙️ **Background job engine** — durable scheduling and retries via `pg-boss` on PostgreSQL.
+- 🚦 **Admin operations** — inspect and reprioritize the prompt queue, review provider usage and latency, and safely delete brands.
+- 📅 **Flexible reporting** — share custom date ranges and compare range-average visibility with the latest result.
 - 🔑 **REST API** — Bearer-authenticated `/api/v1` for brands, competitors, prompts, and reports.
 - 🎨 **White-label mode** — rebrandable deployment with Auth0 SSO.
 
@@ -98,7 +100,7 @@ Try the live demo at **[demo.getcito.com](https://demo.getcito.com)** to see pro
 | Web app | [TanStack Start](https://tanstack.com/start) / [TanStack Router](https://tanstack.com/router) + [React 19](https://react.dev/), [Vite](https://vitejs.dev/), [Nitro](https://nitro.build/) |
 | UI | [Tailwind CSS 4](https://tailwindcss.com/), [Radix UI](https://www.radix-ui.com/), [Recharts](https://recharts.org/), [Storybook](https://storybook.js.org/) |
 | Background jobs | [pg-boss](https://github.com/timgit/pg-boss) |
-| Database | [PostgreSQL 16](https://www.postgresql.org/) + [Drizzle ORM](https://orm.drizzle.team/) / drizzle-kit |
+| Database | [PostgreSQL 16+](https://www.postgresql.org/) (Docker Compose defaults to 18) + [Drizzle ORM](https://orm.drizzle.team/) / drizzle-kit |
 | Auth | [Better Auth](https://www.better-auth.com/) + [Auth0](https://auth0.com/) (white-label SSO) |
 | AI SDKs | [Vercel AI SDK](https://sdk.vercel.ai/), `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@anthropic-ai/sdk` |
 | Tooling | [Biome](https://biomejs.dev/) (lint/format), [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/), [Knip](https://knip.dev/), [Changesets](https://github.com/changesets/changesets) |
@@ -111,7 +113,7 @@ Getcito is a pnpm/Turborepo monorepo of two apps backed by shared packages. The 
 ```mermaid
 flowchart LR
     User([User / Browser]) -->|HTTP| Web[apps/web<br/>TanStack Start dashboard + /api/v1]
-    Web -->|read/write| DB[(PostgreSQL 16<br/>Drizzle schema)]
+    Web -->|read/write| DB[(PostgreSQL<br/>Drizzle schema)]
     Web -->|enqueue jobs| DB
     Worker[apps/worker<br/>pg-boss jobs] -->|poll queues| DB
     Worker -->|scrape AI answers| Scrapers[BrightData / Oxylabs<br/>Olostep / DataForSEO]
@@ -172,7 +174,7 @@ getcito/
 
 - [Node.js](https://nodejs.org/) **24.x** (enforced via `engines`; use `nvm use 24`)
 - [pnpm](https://pnpm.io/) **11.10.0** (`corepack enable pnpm`)
-- [PostgreSQL 16](https://www.postgresql.org/) (or run it via Docker)
+- [PostgreSQL 16 or newer](https://www.postgresql.org/) (or run it via Docker, which defaults to 18)
 
 ## Installation
 
@@ -185,7 +187,8 @@ Builds and runs the full stack (PostgreSQL, migrations, web, worker, Adminer) fr
 git clone https://github.com/ai-search-guru/getcito-worlds-first-open-source-aio-aeo-or-geo-tool.git
 cd getcito-worlds-first-open-source-aio-aeo-or-geo-tool
 
-# Edit the .env file at the repo root and fill in real values (see Configuration)
+# Create the environment file and fill in real values (see Configuration)
+cp .env.example .env
 
 # Build and start
 docker compose build
@@ -203,6 +206,9 @@ Services exposed on the host:
 > [!TIP]
 > **Watch** this repo's **releases** to get notified of major updates.
 
+> [!IMPORTANT]
+> Upgrading an existing Compose installation does not upgrade its database files. Set `POSTGRES_IMAGE_TAG=16-alpine` in `.env` before pulling this release. Move to PostgreSQL 18 only after dumping the PostgreSQL 16 database and restoring it into a fresh PostgreSQL 18 volume.
+
 ### Option B — Local development
 
 ```bash
@@ -211,9 +217,9 @@ corepack enable pnpm
 pnpm install
 
 # Env file is read from the repo root AND apps/web/.env (see Configuration)
-# Note: Complete .env.local files have been generated for you. You can copy them to .env:
-cp .env.local .env
-cp apps/web/.env.local apps/web/.env
+# Copy the committed templates, then replace their placeholder values.
+cp .env.example .env
+cp apps/web/.env.example apps/web/.env
 
 # Run all dev servers via Turborepo
 pnpm dev
@@ -227,8 +233,7 @@ The **worker** loads env from `apps/web/.env` (via `--env-file`) and is only nee
 Environment variables are the single source of truth. The canonical registry lives in `packages/config/src/env-registry.ts`; startup validation reports any missing **required** vars for the active `DEPLOYMENT_MODE`.
 
 > [!IMPORTANT]
-> A complete `.env.local` file has been pre-generated for you in the repo root and within each app directory. You can use this file for your local overrides. 
-> Because the worker strictly reads from `apps/web/.env` via the Node `--env-file` flag during `pnpm dev`, ensure you copy your `.env.local` content to `.env` in those locations.
+> Start from `.env.example` at the repo root and `apps/web/.env.example`. Because the worker reads `apps/web/.env` during `pnpm dev`, copy the app template there as shown above.
 
 **Deployment modes** (`DEPLOYMENT_MODE`): `local`, `demo`, `whitelabel`, `cloud`.
 Required-column legend: **local** = required in local mode · **wl** = required in white-label mode · **scraper** = required only when `SCRAPE_TARGETS` references that provider · _optional_ = never required at startup.
@@ -244,6 +249,9 @@ Required-column legend: **local** = required in local mode · **wl** = required 
 | `APP_URL` | server | optional | Public base URL of the web app. |
 | `VITE_APP_URL` | client | wl | Client-visible app URL. |
 | `VITE_DEPLOYMENT_MODE` | client | optional | Client-visible copy of `DEPLOYMENT_MODE`. |
+| `VITE_APP_TIMEZONE` | client | optional | IANA timezone used across charts and dates. Falls back to the runtime timezone; `Asia/Kolkata` is an example deployment value. |
+| `VITE_APP_LOCALE` | client | optional | BCP 47 locale used for date/number formatting. Falls back to the runtime locale; `en-IN` is an example deployment value. |
+| `ONBOARDING_LLM_TARGET` | server | optional | Explicit `model:provider` used for structured onboarding research. |
 | `DISABLE_TELEMETRY` | server | optional | Set to any value to disable telemetry. |
 | `ENVIRONMENT` | server | optional | Environment name reported to Sentry. |
 
@@ -255,6 +263,7 @@ Required-column legend: **local** = required in local mode · **wl** = required 
 | `OXYLABS_USERNAME` / `OXYLABS_PASSWORD` | oxylabs | Oxylabs Web Scraper API credentials. |
 | `OLOSTEP_API_KEY` | olostep | Olostep API key. |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | dataforseo | DataForSEO account credentials. |
+| `CLORO_API_KEY` | cloro | Cloro API key. Cloro targets must use `:online`. |
 
 ### Direct LLM providers (required when referenced by `SCRAPE_TARGETS`)
 
@@ -264,6 +273,7 @@ Required-column legend: **local** = required in local mode · **wl** = required 
 | `ANTHROPIC_API_KEY` | anthropic-api | Anthropic API key. |
 | `OPENAI_API_KEY` | openai-api | OpenAI API key. |
 | `MISTRAL_API_KEY` | mistral-api | Mistral API key. |
+| `AZURE_FOUNDRY_API_KEY` / `AZURE_FOUNDRY_BASE_URL` | azure-foundry-api | Azure AI Foundry key and endpoint URL. |
 
 ### White-label (Auth0)
 
@@ -353,7 +363,7 @@ curl -H "Authorization: Bearer $GETCITO_TOKEN" \
 
 ## Database
 
-- **PostgreSQL 16**, accessed via **Drizzle ORM** (schema in `packages/lib/src/db`).
+- **PostgreSQL 16+**, accessed via **Drizzle ORM** (schema in `packages/lib/src/db`). Docker Compose defaults new installations to PostgreSQL 18.
 - Migrations are managed with **drizzle-kit**. Run from `packages/lib`:
 
 ```bash
@@ -378,10 +388,9 @@ The local deployment builds and runs the full stack (PostgreSQL, automatic migra
 **Step-by-step Setup:**
 
 1. **Configure Environment Variables**
-   A complete `.env.local` file has been pre-generated in the repository root. Open `.env.local` and fill in your actual values. Ensure the `DEPLOYMENT_MODE` is set to `local`.
-   For Docker Compose to pick it up properly via the `env_file` directive, copy it to `.env`:
+   Copy the committed template to `.env`, then fill in your actual values. Ensure `DEPLOYMENT_MODE` is set to `local`:
    ```bash
-   cp .env.local .env
+   cp .env.example .env
    ```
    *Required variables include: `DATABASE_URL`, `DEPLOYMENT_MODE`, `BETTER_AUTH_SECRET`, and any required `SCRAPE_TARGETS` API keys.*
 
@@ -449,12 +458,12 @@ Getcito supports a fully rebrandable **White Label** mode powered by Auth0 SSO.
 **White Label Capabilities:**
 - Custom branding baked into the client bundle at build time: App Name, App Icon, Parent Brand URLs, and Custom Optimization URL Templates.
 - Authentication delegated completely to Auth0.
-- Allows deploying via a custom Docker Compose file that maps to standard ports (Web on `3000`, DB on `5432`, Adminer on `8080`).
+- Includes a Docker Compose file with configurable host ports (Web `3000`, DB `5432`, Adminer `8080` by default).
 
 **Setup:**
 
-1. **Create the Compose Template**
-   Create a new file named `docker-compose.whitelabel.yml` in the root directory and paste the following configuration. This file is intentionally omitted from the repository to prevent accidental leakage of proprietary modifications.
+1. **Review the Compose Template**
+   The repository includes [`docker-compose.whitelabel.yml`](docker-compose.whitelabel.yml). It contains no secrets; all credentials and branding come from `.env`.
 
    <details>
    <summary>Click to view <code>docker-compose.whitelabel.yml</code> template</summary>
@@ -462,9 +471,9 @@ Getcito supports a fully rebrandable **White Label** mode powered by Auth0 SSO.
    ```yaml
    services:
      postgres:
-       image: postgres:16-alpine
+       image: postgres:${POSTGRES_IMAGE_TAG:-18-alpine}
        ports:
-         - "127.0.0.1:5432:5432"
+         - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
        environment:
          POSTGRES_USER: postgres
          POSTGRES_PASSWORD: postgres
@@ -481,7 +490,7 @@ Getcito supports a fully rebrandable **White Label** mode powered by Auth0 SSO.
        image: adminer
        restart: always
        ports:
-         - "8080:8080"
+         - "${ADMINER_PORT:-8080}:8080"
        environment:
          ADMINER_DEFAULT_SERVER: postgres
          start_period: 30s
@@ -514,10 +523,12 @@ Getcito supports a fully rebrandable **White Label** mode powered by Auth0 SSO.
            VITE_ONBOARDING_REDIRECT_URL_TEMPLATE: ${VITE_ONBOARDING_REDIRECT_URL_TEMPLATE}
            VITE_AUTH0_DOMAIN: ${VITE_AUTH0_DOMAIN}
            VITE_AUTH0_CLIENT_ID: ${VITE_AUTH0_CLIENT_ID}
+           VITE_APP_TIMEZONE: ${VITE_APP_TIMEZONE:-}
+           VITE_APP_LOCALE: ${VITE_APP_LOCALE:-}
        env_file:
          - .env
        ports:
-         - "3000:3000"
+         - "${WEB_PORT:-3000}:3000"
        depends_on:
          postgres:
            condition: service_healthy
@@ -543,8 +554,9 @@ Getcito supports a fully rebrandable **White Label** mode powered by Auth0 SSO.
    </details>
 
 2. **Configure Environment Variables**
-   Ensure `DEPLOYMENT_MODE=whitelabel` and provide the required Auth0 and branding values in your `.env` file.
+   Copy `.env.whitelabel.example` to `.env`, then provide the required Auth0, branding, and provider values. Existing PostgreSQL 16 deployments must keep `POSTGRES_IMAGE_TAG=16-alpine` until completing a dump/restore migration.
    ```env
+   POSTGRES_IMAGE_TAG=18-alpine
    DEPLOYMENT_MODE=whitelabel
    VITE_DEPLOYMENT_MODE=whitelabel
    AUTH0_CLIENT_ID=your_client_id
@@ -556,6 +568,8 @@ Getcito supports a fully rebrandable **White Label** mode powered by Auth0 SSO.
    VITE_APP_PARENT_NAME="Acme"
    VITE_APP_PARENT_URL="http://localhost:3000"
    VITE_OPTIMIZATION_URL_TEMPLATE="..."
+   VITE_APP_TIMEZONE=Asia/Kolkata
+   VITE_APP_LOCALE=en-IN
    ```
 
 3. **Build and Deploy**
@@ -593,12 +607,7 @@ pnpm knip      # detect unused files, dependencies, and exports
 
 ## CI/CD
 
-This repo does not ship GitHub Actions workflows. Automation currently present in `.github/`:
-
-- **`dependabot.yml`** — automated dependency updates.
-- **`CODEOWNERS`**, **`contributors.txt`** (CLA signatures), **`FUNDING.yml`**.
-
-Releases are managed with **Changesets** (`pnpm changeset` → `pnpm version-packages` → `pnpm release`).
+Releases are managed on `master` by the GitHub Actions release workflow and **Changesets** (`pnpm changeset` → `pnpm version-packages` → GitHub Release).
 
 ## Security Notes
 
@@ -611,7 +620,7 @@ Releases are managed with **Changesets** (`pnpm changeset` → `pnpm version-pac
 
 Contributions are welcome. For minor fixes, open a PR directly; for larger changes, open an issue first. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md).
 
-- **Branching / PRs:** open PRs from your own fork/account against `main`.
+- **Branching / PRs:** open PRs from your own fork/account against `master`.
 - **Coding standards:** TypeScript; format & lint with Biome (`pnpm format`, `pnpm lint`); keep changes type-clean (`check-types`).
 - **Changesets:** add a short, end-user-focused changeset scoped to the affected packages (`pnpm changeset`).
 - **CLA:** before your first PR merges, add your GitHub username to [`.github/contributors.txt`](.github/contributors.txt) — see [`CLA.md`](CLA.md).
@@ -627,7 +636,7 @@ Released under the [MIT License](LICENSE.md). © 2026 GetCito. Contributions are
 
 ## Acknowledgements
 
-Built on TanStack Start, Drizzle ORM, Better Auth, pg-boss, Fumadocs, Biome, and Turborepo, and integrates BrightData, Oxylabs, Olostep, DataForSEO, OpenRouter, Anthropic, OpenAI, and Mistral.
+Built on TanStack Start, Drizzle ORM, Better Auth, pg-boss, Fumadocs, Biome, and Turborepo, and integrates BrightData, Oxylabs, Olostep, Cloro, DataForSEO, Azure AI Foundry, OpenRouter, Anthropic, OpenAI, and Mistral.
 
 ## Contact
 

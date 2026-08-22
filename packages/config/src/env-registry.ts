@@ -126,11 +126,32 @@ export const ENV_REGISTRY: EnvVarSpec[] = [
 		description: "Mistral API key.",
 	},
 	{
+		name: "AZURE_FOUNDRY_API_KEY",
+		scope: "server",
+		requiredBy: "dynamic-scrape-targets",
+		provider: "azure-foundry-api",
+		description: "Azure AI Foundry API key.",
+	},
+	{
+		name: "AZURE_FOUNDRY_BASE_URL",
+		scope: "server",
+		requiredBy: "dynamic-scrape-targets",
+		provider: "azure-foundry-api",
+		description: "Azure AI Foundry endpoint URL (with or without a trailing /chat/completions).",
+	},
+	{
 		name: "SCRAPE_TARGETS",
 		scope: "server",
 		requiredBy: VALIDATED_MODES,
 		description:
 			"Comma-separated model:provider[:version][:online] entries. Example: chatgpt:olostep:online,google-ai-mode:olostep:online,copilot:olostep:online",
+	},
+	{
+		name: "ONBOARDING_LLM_TARGET",
+		scope: "server",
+		requiredBy: "optional",
+		description:
+			"Overrides which provider runs brand analysis and other structured research, as a model:provider entry (e.g. chatgpt:olostep). Defaults to the first configured direct API provider.",
 	},
 	{
 		name: "OLOSTEP_API_KEY",
@@ -159,6 +180,13 @@ export const ENV_REGISTRY: EnvVarSpec[] = [
 		requiredBy: "dynamic-scrape-targets",
 		provider: "oxylabs",
 		description: "Oxylabs Web Scraper API password.",
+	},
+	{
+		name: "CLORO_API_KEY",
+		scope: "server",
+		requiredBy: "dynamic-scrape-targets",
+		provider: "cloro",
+		description: "Cloro API key.",
 	},
 	{
 		name: "OPENROUTER_API_KEY",
@@ -202,6 +230,18 @@ export const ENV_REGISTRY: EnvVarSpec[] = [
 		scope: "client",
 		requiredBy: "optional",
 		description: "Client-visible copy of DEPLOYMENT_MODE.",
+	},
+	{
+		name: "VITE_APP_TIMEZONE",
+		scope: "client",
+		requiredBy: "optional",
+		description: "IANA timezone used consistently for application dates and chart buckets.",
+	},
+	{
+		name: "VITE_APP_LOCALE",
+		scope: "client",
+		requiredBy: "optional",
+		description: "BCP 47 locale used for application date and number formatting.",
 	},
 	{
 		name: "VITE_APP_NAME",

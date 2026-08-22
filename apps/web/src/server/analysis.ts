@@ -16,17 +16,20 @@ import { brands } from "@workspace/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAuthSession, requireOrgAccess } from "@/lib/auth/helpers";
-import { generateDateRange, type LookbackPeriod } from "@/lib/chart-utils";
+import { coerceLookbackPeriod, generateDateRange, type LookbackPeriod } from "@/lib/chart-utils";
 import {
 	getBrandMentionTotals,
 	getPerPromptDailyCompetitorMentions,
 	getPerPromptDailyMentions,
 } from "@/lib/postgres-read";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getTimezoneLookbackRange, resolveTimezone } from "@/lib/timezone-utils";
 import { computeShareOfVoice, shareOfVoiceLeaderboardLVCF, shareOfVoiceTimeSeriesLVCF } from "@/lib/visibility-stats";
 import { resolveFilteredPrompts } from "@/server/prompt-resolution";
 
-export const LOOKBACK = z.enum(["1w", "1m", "3m", "6m", "1y", "all"]);
+/** Accepts the presets plus `custom:YYYY-MM-DD:YYYY-MM-DD`; anything unrecognised
+ *  degrades to the default one-month window rather than failing the request. */
+export const LOOKBACK = z.string().transform((value) => coerceLookbackPeriod(value));
 
 /** Resolve a lookback + timezone into concrete from/to date strings (mirrors server/visibility.ts). */
 export function resolveRange(lookback: LookbackPeriod, timezoneParam: string) {
@@ -69,7 +72,7 @@ export const getShareOfVoiceFn = createServerFn({ method: "GET" })
 			model: z.string().optional(),
 			tags: z.string().optional(),
 			search: z.string().optional(),
-			timezone: z.string().default("UTC"),
+			timezone: z.string().default(APP_TIMEZONE),
 		}),
 	)
 	.handler(async ({ data }): Promise<ShareOfVoiceResponse> => {

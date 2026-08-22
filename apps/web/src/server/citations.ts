@@ -10,7 +10,7 @@ import { brands, competitors, prompts, SYSTEM_TAGS } from "@workspace/lib/db/sch
 import { eq, and } from "drizzle-orm";
 import { getCitationUrlStats, getPerPromptDailyCitationPages, getPerPromptCitationPages } from "@/lib/postgres-read";
 import { getEffectiveBrandedStatus } from "@workspace/lib/tag-utils";
-import { citationDateWindow, applyPerPromptKeyedLVCF } from "@/lib/chart-utils";
+import { citationDateWindow, applyPerPromptKeyedLVCF, resolveWindowEnd } from "@/lib/chart-utils";
 import {
 	type CitationCategory,
 	type CitationPageType,
@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain-categories";
 import { categorizeDomain as categorizeDomainShared, classifyUrl as classifyUrlShared } from "@/lib/domain-categories.server";
 import { buildGoogleModule, emptyGoogleModule } from "@/lib/google-module";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 
 /**
  * Get citation statistics for a brand
@@ -35,6 +36,9 @@ export const getCitationsFn = createServerFn({ method: "GET" })
 		z.object({
 			brandId: z.string(),
 			days: z.number().optional().default(7),
+			/** Last day of the window (`YYYY-MM-DD`); defaults to today. A custom
+			 *  lookback range sets it so the window doesn't run up to the present. */
+			endDate: z.string().optional(),
 			tags: z.string().optional(),
 			model: z.string().optional(),
 		}),
@@ -43,11 +47,14 @@ export const getCitationsFn = createServerFn({ method: "GET" })
 		const session = await requireAuthSession();
 		await requireOrgAccess(session.user.id, data.brandId);
 
-		// Window: `data.days` calendar days ending today (inclusive), plus the
+		// Window: `data.days` calendar days ending on `endDate` (inclusive), plus the
 		// contiguous equal-length previous window — all UTC (server-TZ independent).
 		// `dateRange` is reused for the trend charts so totals + charts span identically.
-		const { fromDateStr, toDateStr, prevFromDateStr, prevToDateStr, dateRange } = citationDateWindow(new Date(), data.days);
-		const timezone = "UTC";
+		const { fromDateStr, toDateStr, prevFromDateStr, prevToDateStr, dateRange } = citationDateWindow(
+			resolveWindowEnd(data.endDate),
+			data.days,
+		);
+		const timezone = APP_TIMEZONE;
 
 		// Get brand info, competitors, and all enabled prompts
 		const [brandResult, competitorsList, allPrompts] = await Promise.all([

@@ -7,6 +7,7 @@ import {
 	ChartContainer,
 	ChartTooltip,
 } from "@workspace/ui/components/chart";
+import { formatDateStr } from "@/lib/app-locale";
 
 export function TrendAreaChart({
 	title,
@@ -53,11 +54,7 @@ export function TrendAreaChart({
 							tickMargin={8}
 							minTickGap={50}
 							tick={{ fontSize: 11 }}
-							tickFormatter={(value) => {
-								const [year, month, day] = String(value).split("-").map(Number);
-								const date = new Date(year, month - 1, day);
-								return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-							}}
+							tickFormatter={(value) => formatDateStr(String(value), { month: "short", day: "numeric" })}
 						/>
 						<YAxis tickLine={false} axisLine={false} tickMargin={8} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fontSize: 11 }} tickFormatter={(value) => `${value}%`} />
 						<ChartTooltip
@@ -66,9 +63,7 @@ export function TrendAreaChart({
 							content={({ active, payload, label }) => {
 								if (!active || !payload?.length) return null;
 								const dp = payload[0]?.payload as Record<string, number | string> | undefined;
-								const [year, month, day] = String(label).split("-").map(Number);
-								const date = new Date(year, month - 1, day);
-								const formattedDate = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+								const formattedDate = formatDateStr(String(label), { month: "long", day: "numeric", year: "numeric" });
 								const rows = ordered
 									.map((k) => ({ k, value: (dp?.[k] as number | undefined) ?? 0 }))
 									.filter((r) => r.value > 0);

@@ -1,15 +1,14 @@
-
-import { useCallback } from "react";
-import { Download } from "lucide-react";
-import { Button } from "@workspace/ui/components/button";
-import { ChartFooter } from "./chart-footer";
-import { HistoryButton } from "./history-button";
 import { useRouteContext } from "@tanstack/react-router";
 import type { ClientConfig } from "@workspace/config/types";
 import { getOptimizeButtonForMode } from "@workspace/deployment/client";
+import { Button } from "@workspace/ui/components/button";
+import { Download } from "lucide-react";
+import { useCallback } from "react";
+import { APP_TIMEZONE } from "@/lib/app-locale";
+import type { LookbackPeriod } from "@/lib/chart-utils";
 import { getPromptWebQueryFn } from "@/server/prompts";
-
-type LookbackPeriod = "1w" | "1m" | "3m" | "6m" | "1y" | "all";
+import { ChartFooter } from "./chart-footer";
+import { HistoryButton } from "./history-button";
 
 interface ChartActionsFooterProps {
 	promptId?: string;
@@ -39,7 +38,7 @@ export function ChartActionsFooter({
 	lookback = "1m",
 }: ChartActionsFooterProps) {
 	const isSinglePrompt = Boolean(promptId && brandId);
-	
+
 	const context = useRouteContext({ strict: false }) as { clientConfig?: ClientConfig };
 	const mode = context.clientConfig?.mode ?? "local";
 	const showOptimizeButton = context.clientConfig?.features.showOptimizeButton ?? false;
@@ -55,7 +54,7 @@ export function ChartActionsFooter({
 					promptId: pId,
 					lookback: lb,
 					model,
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					timezone: APP_TIMEZONE,
 				},
 			});
 		},
@@ -70,11 +69,7 @@ export function ChartActionsFooter({
 		<ChartFooter>
 			<div className="flex flex-wrap items-center justify-between gap-2 w-full">
 				<div className="flex flex-wrap items-center gap-2">
-					<HistoryButton
-						promptName={promptName}
-						promptId={promptId}
-						brandId={brandId}
-					/>
+					<HistoryButton promptName={promptName} promptId={promptId} brandId={brandId} />
 					{onDownload && (
 						<Button
 							onClick={onDownload}

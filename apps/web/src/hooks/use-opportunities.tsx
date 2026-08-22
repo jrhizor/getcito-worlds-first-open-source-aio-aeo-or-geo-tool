@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getOpportunitiesFn } from "@/server/opportunities";
 
 export const opportunitiesKeys = {
@@ -20,7 +21,7 @@ export function useOpportunities(brandId?: string) {
 		queryKey: opportunitiesKeys.detail(resolvedBrandId || ""),
 		queryFn: () =>
 			getOpportunitiesFn({
-				data: { brandId: resolvedBrandId!, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+				data: { brandId: resolvedBrandId!, timezone: APP_TIMEZONE },
 			}),
 		enabled: !!resolvedBrandId,
 		staleTime: Number.POSITIVE_INFINITY,

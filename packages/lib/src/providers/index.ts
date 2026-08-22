@@ -1,32 +1,36 @@
-import type { Provider } from "./types";
-import { olostep } from "./registry/olostep";
-import { brightdata } from "./registry/brightdata";
-import { oxylabs } from "./registry/oxylabs";
-import { openaiApi } from "./registry/openai-api";
 import { anthropicApi } from "./registry/anthropic-api";
-import { mistralApi } from "./registry/mistral-api";
-import { dataforseo } from "./registry/dataforseo";
-import { openrouter } from "./registry/openrouter";
 import { azureFoundryApi } from "./registry/azure-foundry-api";
+import { brightdata } from "./registry/brightdata";
+import { cloro } from "./registry/cloro";
+import { dataforseo } from "./registry/dataforseo";
+import { mistralApi } from "./registry/mistral-api";
+import { olostep } from "./registry/olostep";
+import { openaiApi } from "./registry/openai-api";
+import { openrouter } from "./registry/openrouter";
+import { oxylabs } from "./registry/oxylabs";
+import type { Provider } from "./types";
 
+export { parseScrapeTargets, validateScrapeTargets } from "./config";
+export type { ModelMeta } from "./models";
+export { getModelMeta, KNOWN_MODELS } from "./models";
+export { selectTargetsForBrand } from "./runner";
 export type {
-	Provider,
-	ScrapeResult,
-	ProviderOptions,
-	TestResult,
 	ModelConfig,
+	Provider,
+	ProviderOptions,
+	ScrapeResult,
 	StructuredResearchOptions,
 	StructuredResearchResult,
+	TestResult,
 } from "./types";
-export { KNOWN_MODELS, getModelMeta } from "./models";
-export type { ModelMeta } from "./models";
-export { parseScrapeTargets, validateScrapeTargets } from "./config";
-export { selectTargetsForBrand } from "./runner";
+export type { ProviderCallKind, ProviderCallRecord } from "./usage";
+export { recordProviderCall, withProviderCallTracking } from "./usage";
 
 const providerMap: Record<string, Provider> = {
 	olostep,
 	brightdata,
 	oxylabs,
+	cloro,
 	"openai-api": openaiApi,
 	"anthropic-api": anthropicApi,
 	"mistral-api": mistralApi,

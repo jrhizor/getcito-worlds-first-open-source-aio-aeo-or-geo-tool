@@ -1,5 +1,15 @@
 # @workspace/worker
 
+## 9.1.0
+
+### Minor Changes
+
+- Increased prompt concurrency, added provider limits and failure backoff, and recorded billable provider calls.
+
+### Patch Changes
+
+- Applied frequency changes to scheduled prompts, preserved backoff during self-healing, and prioritized first runs.
+
 ## 0.2.14
 
 ### Patch Changes

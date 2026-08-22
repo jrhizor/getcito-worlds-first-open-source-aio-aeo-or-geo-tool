@@ -14,7 +14,7 @@ import { useListFilters } from "@/hooks/use-list-filters";
 import { dashboardKeys } from "@/hooks/use-dashboard-summary";
 import { CitationsDisplay } from "@/components/citations-display";
 import { FilteredListShell } from "@/components/filtered-list-shell";
-import { getDaysFromLookback } from "@/lib/chart-utils";
+import { getDaysFromLookback, parseCustomLookback } from "@/lib/chart-utils";
 import { PageHeader } from "@/components/page-header";
 import { getAvailableModels, ALL_MODELS_VALUE } from "@/components/filter-bar";
 
@@ -39,6 +39,8 @@ function CitationsPage() {
 
 	const filters = useListFilters();
 	const days = getDaysFromLookback(filters.lookback);
+	// A custom range ends on its own last day rather than today.
+	const endDate = parseCustomLookback(filters.lookback)?.to;
 
 	const { brand } = useBrand(brandId);
 	const availableModels = getAvailableModels(brand?.effectiveModels ?? []);
@@ -52,6 +54,7 @@ function CitationsPage() {
 		revalidate: revalidateCitations,
 	} = useCitations(brandId, {
 		days,
+		endDate,
 		tags: filters.tags.length > 0 ? filters.tags : undefined,
 		model: modelParam,
 	});

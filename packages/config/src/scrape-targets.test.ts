@@ -16,8 +16,8 @@ describe("formatScrapeTarget", () => {
 
 	it("formats model:provider:version", () => {
 		expect(
-			formatScrapeTarget({ model: "chatgpt", provider: "openai-api", version: "gpt-5-mini", webSearch: false }),
-		).toBe("chatgpt:openai-api:gpt-5-mini");
+			formatScrapeTarget({ model: "chatgpt", provider: "openai-api", version: "gpt-5.5", webSearch: false }),
+		).toBe("chatgpt:openai-api:gpt-5.5");
 	});
 
 	it("formats model:provider:version:online", () => {
@@ -38,8 +38,8 @@ describe("round-trip", () => {
 			{ model: "chatgpt", provider: "olostep", version: undefined, webSearch: true },
 			{ model: "chatgpt", provider: "brightdata", version: undefined, webSearch: false },
 			{ model: "claude", provider: "anthropic-api", version: "claude-sonnet-4-6", webSearch: true },
-			{ model: "chatgpt", provider: "openai-api", version: "gpt-5-mini", webSearch: false },
-			{ model: "chatgpt", provider: "openrouter", version: "openai/gpt-5-mini:free", webSearch: true },
+			{ model: "chatgpt", provider: "openai-api", version: "gpt-5.5", webSearch: false },
+			{ model: "chatgpt", provider: "openrouter", version: "openai/gpt-5.5:free", webSearch: true },
 			{ model: "google-ai-mode", provider: "dataforseo", version: undefined, webSearch: true },
 		];
 		for (const config of configs) {

@@ -1,5 +1,11 @@
 # @workspace/whitelabel
 
+## 9.1.0
+
+### Patch Changes
+
+- Revoke deleted Auth0 users cleanly and inherit the shared provider reliability improvements.
+
 ## 0.2.14
 
 ### Patch Changes

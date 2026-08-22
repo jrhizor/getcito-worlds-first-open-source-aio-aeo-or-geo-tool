@@ -7,16 +7,11 @@
  */
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@workspace/ui/components/chart";
+import { formatDateStr } from "@/lib/app-locale";
 
 export interface TrendPoint {
 	date: string;
 	value: number | null;
-}
-
-/** Build a local Date from a "YYYY-MM-DD" string (avoids the UTC off-by-one of `new Date(iso)`). */
-function localDate(value: string): Date {
-	const [year, month, day] = value.split("-").map(Number);
-	return new Date(year, month - 1, day);
 }
 
 export function TrendChart({
@@ -43,9 +38,7 @@ export function TrendChart({
 					tickMargin={8}
 					minTickGap={50}
 					tick={{ fontSize: 11 }}
-					tickFormatter={(value: string) =>
-						localDate(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-					}
+					tickFormatter={(value: string) => formatDateStr(value, { month: "short", day: "numeric" })}
 				/>
 				<YAxis
 					domain={[0, "auto"]}
@@ -63,7 +56,7 @@ export function TrendChart({
 						if (!active || !payload?.length) return null;
 						const value = payload[0]?.value as number | null;
 						if (value == null) return null;
-						const formattedDate = localDate(dateLabel as string).toLocaleDateString("en-US", {
+						const formattedDate = formatDateStr(dateLabel as string, {
 							month: "long",
 							day: "numeric",
 							year: "numeric",

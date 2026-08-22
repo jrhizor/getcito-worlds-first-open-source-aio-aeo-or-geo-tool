@@ -1,5 +1,16 @@
 # @workspace/lib
 
+## 9.1.0
+
+### Minor Changes
+
+- Added Cloro and improved Azure Foundry localization, retry, and citation behavior.
+- Added provider usage accounting, prompt latency data, queue prioritization, deletion indexes, concurrency limits, and failure backoff.
+
+### Patch Changes
+
+- Increased Olostep concurrency and preserved scheduler backoff.
+
 ## 0.2.14
 
 ### Patch Changes

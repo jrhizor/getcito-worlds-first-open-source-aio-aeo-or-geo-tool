@@ -1,5 +1,9 @@
 # @workspace/api-spec
 
+## 9.1.0
+
+- Versioned with the fixed workspace release group.
+
 ## 0.2.14
 
 ## 0.2.13

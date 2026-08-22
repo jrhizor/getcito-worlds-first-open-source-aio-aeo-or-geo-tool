@@ -45,6 +45,7 @@ storybook-static/
 # env files (can opt-in for committing if needed)
 .env
 !.env.example
+!.env.whitelabel.example
 !.env.local.example
 
 # playwright
@@ -91,8 +92,8 @@ REBRANDING_PLAN.md
 
 # CLI is being ignored for now until it is published
 apps/cli/
-docker-compose.whitelabel.yml 
 # transient GitHub Release notes body (scripts/gh-release.mjs)
 .release-notes.md
 
 .claude/skills/add-changeset/
+docs/

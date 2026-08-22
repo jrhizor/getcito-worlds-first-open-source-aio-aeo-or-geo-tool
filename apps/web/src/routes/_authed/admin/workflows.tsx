@@ -3,6 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatDateTime } from "@/lib/app-locale";
 import { getAppName } from "@/lib/route-head";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table";
@@ -32,6 +33,7 @@ import {
 	Loader2,
 } from "lucide-react";
 import { getWorkflowDataFn, retryJobFn, getJobLogsFn } from "@/server/admin";
+import { formatDuration, formatFutureTime, formatRelativeTime } from "@/lib/format-duration";
 
 // ============================================================================
 // Types
@@ -110,49 +112,6 @@ interface WorkflowsData {
 	queue: QueueStats;
 	recentJobs: RecentJob[];
 	brands: BrandScheduleSummary[];
-}
-
-// ============================================================================
-// Utility functions
-// ============================================================================
-
-function formatDuration(ms: number): string {
-	const seconds = Math.floor(ms / 1000);
-	const minutes = Math.floor(seconds / 60);
-	const hours = Math.floor(minutes / 60);
-	const days = Math.floor(hours / 24);
-	const weeks = Math.floor(days / 7);
-
-	if (weeks > 0) {
-		const remainingDays = days % 7;
-		return remainingDays > 0 ? `${weeks}w ${remainingDays}d` : `${weeks}w`;
-	}
-	if (days > 0) {
-		const remainingHours = hours % 24;
-		return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
-	}
-	if (hours > 0) {
-		const remainingMinutes = minutes % 60;
-		return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-	}
-	if (minutes > 0) return `${minutes}m`;
-	return `${seconds}s`;
-}
-
-function formatRelativeTime(dateStr: string | null): string {
-	if (!dateStr) return "Never";
-	const date = new Date(dateStr);
-	const now = new Date();
-	const diffMs = now.getTime() - date.getTime();
-	return `${formatDuration(diffMs)} ago`;
-}
-
-function formatFutureTime(timestamp: number | null): string {
-	if (!timestamp) return "Unknown";
-	const now = Date.now();
-	const diffMs = timestamp - now;
-	if (diffMs < 0) return "Overdue";
-	return `in ${formatDuration(diffMs)}`;
 }
 
 // ============================================================================
@@ -353,7 +312,7 @@ function JobDetailsDialog({ job, onRetrySuccess }: { job: RecentJob; onRetrySucc
 						</div>
 						<div>
 							<p className="text-muted-foreground">Finished At</p>
-							<p>{job.finishedOn ? new Date(job.finishedOn).toLocaleString() : "Unknown"}</p>
+							<p>{job.finishedOn ? formatDateTime(job.finishedOn) : "Unknown"}</p>
 						</div>
 					</div>
 					{isFailed && job.failedReason && (

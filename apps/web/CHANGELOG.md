@@ -1,5 +1,18 @@
 # @workspace/web
 
+## 9.1.0
+
+### Minor Changes
+
+- Added custom date ranges and range-average visibility metrics.
+- Added admin queue controls, provider usage and latency reporting, and safe brand deletion.
+- Added configurable application timezone and locale formatting.
+
+### Patch Changes
+
+- Prioritized first-time prompt runs, fixed server-only deletion code leaking into the browser bundle, and improved wordmark loading.
+- Updated dependencies across the fixed workspace release group.
+
 ## 0.2.14
 
 ### Patch Changes

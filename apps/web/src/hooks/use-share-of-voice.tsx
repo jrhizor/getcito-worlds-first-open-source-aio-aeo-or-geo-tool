@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getShareOfVoiceFn } from "@/server/analysis";
 import type { LookbackPeriod } from "@/lib/chart-utils";
 
@@ -28,7 +29,7 @@ export function useShareOfVoice(brandId?: string, filters?: ShareOfVoiceFilters)
 					lookback: filters?.lookback ?? "1m",
 					model: filters?.model,
 					tags: filters?.tags?.join(","),
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					timezone: APP_TIMEZONE,
 				},
 			}),
 		enabled: !!resolvedBrandId,

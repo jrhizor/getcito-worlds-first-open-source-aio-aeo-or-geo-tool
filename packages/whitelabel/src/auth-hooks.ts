@@ -16,11 +16,12 @@
 import type { CreateAuthOptions } from "@workspace/lib/auth/server";
 import {
 	findAccountByProvider,
+	revokeUserAccess,
 	syncMemberships,
 	updateUserFlags,
 	upsertOrganization,
 } from "@workspace/lib/db/auth-sync";
-import { ManagementClient } from "auth0";
+import { ManagementClient, ManagementError } from "auth0";
 import { z } from "zod";
 
 interface Auth0AppMetadata {
@@ -45,12 +46,6 @@ const Auth0AppMetadataSchema = z.object({
 	Getcito_admin: z.boolean().optional(),
 });
 
-const REVOKED_METADATA: Auth0AppMetadata = {
-	Getcito_orgs: [],
-	Getcito_report_generator_access: false,
-	Getcito_admin: false,
-};
-
 function getManagementClient(): ManagementClient {
 	if (!managementClient) {
 		managementClient = new ManagementClient({
@@ -62,21 +57,36 @@ function getManagementClient(): ManagementClient {
 	return managementClient;
 }
 
-async function fetchAuth0AppMetadata(auth0UserId: string): Promise<Auth0AppMetadata> {
+async function fetchAuth0AppMetadata(auth0UserId: string): Promise<Auth0AppMetadata | null> {
 	const client = getManagementClient();
-	const userData = await client.users.get(auth0UserId);
+	let userData: Awaited<ReturnType<typeof client.users.get>>;
+	try {
+		userData = await client.users.get(auth0UserId);
+	} catch (error) {
+		// A user deleted in the Auth0 tenant keeps its local `account` row, so the
+		// scheduled membership sync would 404 on it every run, forever. Treat that
+		// as a revocation — same policy as malformed metadata — which strips the
+		// memberships and flags. Any
+		// other failure is transient and must propagate rather than silently
+		// revoking access on, say, an Auth0 outage.
+		if (error instanceof ManagementError && error.statusCode === 404) {
+			console.warn(`[auth0-sync] auth0UserId=${auth0UserId} no longer exists in Auth0; revoking access`);
+			return null;
+		}
+		throw error;
+	}
 	const appMetadataRaw =
 		(userData as { app_metadata?: unknown }).app_metadata ??
 		(userData as { data?: { app_metadata?: unknown } }).data?.app_metadata;
 
-	const parsed = Auth0AppMetadataSchema.safeParse(appMetadataRaw);
+	const parsed = Auth0AppMetadataSchema.safeParse(appMetadataRaw || {});
 	if (!parsed.success) {
 		// Missing/malformed metadata in a successful Auth0 response revokes access by policy.
 		console.error(
 			`[auth0-sync] Invalid app_metadata for auth0UserId=${auth0UserId}; revoking access`,
 			parsed.error.issues,
 		);
-		return REVOKED_METADATA;
+		return null;
 	}
 	return parsed.data;
 }
@@ -115,6 +125,10 @@ export async function syncAuth0User(
 ): Promise<{ role: string; hasReportGeneratorAccess: boolean }> {
 	console.log(`[auth0-sync] Syncing user=${userId}`);
 	const metadata = await fetchAuth0AppMetadata(auth0UserId);
+	if (!metadata) {
+		await revokeUserAccess(userId);
+		return { role: "user", hasReportGeneratorAccess: false };
+	}
 
 	await syncOrganizations(userId, metadata.Getcito_orgs);
 

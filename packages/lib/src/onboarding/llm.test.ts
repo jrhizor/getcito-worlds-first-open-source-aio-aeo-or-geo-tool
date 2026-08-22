@@ -33,7 +33,7 @@ afterEach(() => {
 describe("resolveResearchProvider", () => {
 	it("uses the explicit env override when set", () => {
 		process.env.ANTHROPIC_API_KEY = "x";
-		const provider = resolveResearchProvider({
+		const { provider } = resolveResearchProvider({
 			ANTHROPIC_API_KEY: "x",
 			ONBOARDING_LLM_TARGET: "claude:anthropic-api",
 		});
@@ -43,19 +43,29 @@ describe("resolveResearchProvider", () => {
 	it("throws when ONBOARDING_LLM_TARGET points at an unconfigured provider", () => {
 		expect(() =>
 			resolveResearchProvider({
-				ONBOARDING_LLM_TARGET: "chatgpt:openai-api:gpt-5-mini",
+				ONBOARDING_LLM_TARGET: "chatgpt:openai-api:gpt-5.5",
 			}),
 		).toThrow(/isn't configured/);
 	});
 
-	it("throws when ONBOARDING_LLM_TARGET points at a scraper", () => {
-		process.env.OLOSTEP_API_KEY = "x";
+	it("throws when ONBOARDING_LLM_TARGET points at a scraper with no structured research", () => {
+		process.env.BRIGHTDATA_API_TOKEN = "x";
 		expect(() =>
 			resolveResearchProvider({
-				OLOSTEP_API_KEY: "x",
-				ONBOARDING_LLM_TARGET: "gemini:olostep:online",
+				BRIGHTDATA_API_TOKEN: "x",
+				ONBOARDING_LLM_TARGET: "gemini:brightdata:online",
 			}),
 		).toThrow(/does not support structured research/);
+	});
+
+	it("accepts Olostep, which parses structured output back out of the chat reply", () => {
+		process.env.OLOSTEP_API_KEY = "x";
+		const { provider, version } = resolveResearchProvider({
+			OLOSTEP_API_KEY: "x",
+			ONBOARDING_LLM_TARGET: "chatgpt:olostep:online",
+		});
+		expect(provider.id).toBe("olostep");
+		expect(version).toBe("chatgpt");
 	});
 
 	it("prefers OpenAI direct first when configured", () => {
@@ -66,7 +76,7 @@ describe("resolveResearchProvider", () => {
 		process.env.OPENROUTER_API_KEY = "b";
 		process.env.ANTHROPIC_API_KEY = "c";
 		process.env.MISTRAL_API_KEY = "d";
-		const provider = resolveResearchProvider();
+		const { provider } = resolveResearchProvider();
 		expect(provider.id).toBe("openai-api");
 	});
 
@@ -74,20 +84,20 @@ describe("resolveResearchProvider", () => {
 		process.env.OPENROUTER_API_KEY = "b";
 		process.env.ANTHROPIC_API_KEY = "c";
 		process.env.MISTRAL_API_KEY = "d";
-		const provider = resolveResearchProvider();
+		const { provider } = resolveResearchProvider();
 		expect(provider.id).toBe("openrouter");
 	});
 
 	it("falls back to Anthropic when OpenAI / OpenRouter aren't configured", () => {
 		process.env.ANTHROPIC_API_KEY = "c";
 		process.env.MISTRAL_API_KEY = "d";
-		const provider = resolveResearchProvider();
+		const { provider } = resolveResearchProvider();
 		expect(provider.id).toBe("anthropic-api");
 	});
 
 	it("falls back to Mistral when only Mistral is set", () => {
 		process.env.MISTRAL_API_KEY = "x";
-		const provider = resolveResearchProvider();
+		const { provider } = resolveResearchProvider();
 		expect(provider.id).toBe("mistral-api");
 	});
 
@@ -104,3 +114,18 @@ describe("resolveResearchProvider", () => {
 	});
 });
 
+
+describe("resolveResearchProvider version", () => {
+	it("does not borrow a model name from another provider's target", () => {
+		const env = { AZURE_FOUNDRY_API_KEY: "k", AZURE_FOUNDRY_BASE_URL: "https://x/v1" };
+		const prev = { ...process.env };
+		process.env.SCRAPE_TARGETS = "chatgpt:olostep:online";
+		Object.assign(process.env, env);
+		try {
+			const { version } = resolveResearchProvider(process.env);
+			expect(version).toBeUndefined();
+		} finally {
+			process.env = prev as NodeJS.ProcessEnv;
+		}
+	});
+});

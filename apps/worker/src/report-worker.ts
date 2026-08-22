@@ -2,7 +2,7 @@ import { db } from "@workspace/lib/db/db";
 import { reports, type Brand, brands, competitors as competitorsSchema, prompts as promptsSchema, promptRuns as promptRunsSchema } from "@workspace/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { RUNS_PER_PROMPT } from "@workspace/lib/constants";
-import { getProvider, parseScrapeTargets, type ModelConfig } from "@workspace/lib/providers";
+import { getProvider, parseScrapeTargets, withProviderCallTracking, type ModelConfig } from "@workspace/lib/providers";
 import { analyzeBrand } from "@workspace/lib/onboarding";
 import { isPromptBranded, computeSystemTags } from "@workspace/lib/tag-utils";
 
@@ -223,10 +223,16 @@ async function runPrompt(
 	const runOne = async (config: ModelConfig) => {
 		try {
 			const providerImpl = getProvider(config.provider);
-			const result = await providerImpl.run(config.model, promptValue, {
-				webSearch: config.webSearch,
-				version: config.version,
-			});
+			// Reports are run for a website, not necessarily a stored brand, so the
+			// usage row carries no brandId.
+			const result = await withProviderCallTracking(
+				{ provider: providerImpl.id, model: config.model, kind: "run" },
+				() =>
+					providerImpl.run(config.model, promptValue, {
+						webSearch: config.webSearch,
+						version: config.version,
+					}),
+			);
 			const { brandMentioned, competitorsMentioned } = analyzeMentions(
 				result.textContent,
 				brandName,
@@ -237,6 +243,7 @@ async function runPrompt(
 				model: config.model,
 				version: result.modelVersion ?? config.version ?? config.provider,
 				webSearchEnabled: config.webSearch,
+				rawOutput: result.rawOutput,
 				webQueries: result.webQueries,
 				textContent: result.textContent,
 				brandMentioned,

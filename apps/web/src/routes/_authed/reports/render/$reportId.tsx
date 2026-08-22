@@ -6,6 +6,7 @@
  */
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { formatDateTime } from "@/lib/app-locale";
 import { requireAuthSession, hasReportAccess } from "@/lib/auth/helpers";
 import { getReportByIdFn } from "@/server/reports";
 import { PromptChartPrint } from "@/components/prompt-chart-print";
@@ -67,10 +68,11 @@ const loadReportData = createServerFn({ method: "GET" })
 	});
 
 function isPromptBranded(promptValue: string, brandName: string, brandWebsite: string): boolean {
-	const promptLower = promptValue.toLowerCase();
-	const brandNameLower = brandName.toLowerCase();
+	const promptLower = (promptValue || "").toLowerCase();
+	const brandNameLower = (brandName || "").toLowerCase();
 	try {
-		const url = new URL(brandWebsite.startsWith("http") ? brandWebsite : `https://${brandWebsite}`);
+		const website = brandWebsite || "";
+		const url = new URL(website.startsWith("http") ? website : `https://${website}`);
 		const domain = url.hostname.replace(/^www\./, "").toLowerCase();
 		const domainWithoutTld = domain.split(".")[0];
 		return promptLower.includes(brandNameLower) || promptLower.includes(domain) || promptLower.includes(domainWithoutTld);
@@ -120,7 +122,13 @@ function ReportRenderPage() {
 		);
 	}
 
-	const data: ReportData = report.rawOutput as ReportData;
+	const rawData = report.rawOutput;
+	let data: ReportData | null = null;
+	try {
+		data = (typeof rawData === "string" ? JSON.parse(rawData) : rawData) as ReportData;
+	} catch (err) {
+		console.error("Failed to parse report rawOutput:", err);
+	}
 
 	// Build mock data structures for chart component compatibility
 	const mockBrand = {
@@ -128,12 +136,12 @@ function ReportRenderPage() {
 		enabled: true, onboarded: true, delayOverrideHours: null,
 		createdAt: new Date(), updatedAt: new Date(),
 	};
-	const mockCompetitors = data.competitors.map((comp, i) => ({
+	const mockCompetitors = (data?.competitors || []).map((comp, i) => ({
 		id: `comp-${i + 1}`, name: comp.name, domain: comp.domain,
 		brandId: mockBrand.id, createdAt: new Date(), updatedAt: new Date(),
 	}));
-	const mockPrompts: MockPrompt[] = data.prompts.map((p, i) => ({
-		id: `prompt-${i + 1}`, brandId: mockBrand.id, value: p.value, enabled: true, createdAt: new Date(),
+	const mockPrompts: MockPrompt[] = (data?.prompts || []).map((p, i) => ({
+		id: `prompt-${i + 1}`, brandId: mockBrand.id, value: p?.value || "", enabled: true, createdAt: new Date(),
 	}));
 
 	// Build run arrays
@@ -141,18 +149,18 @@ function ReportRenderPage() {
 	const fullRuns: FullPromptRun[] = [];
 	const chartRuns: any[] = [];
 
-	data.promptRuns.forEach((pr, pi) => {
-		pr.runs.forEach((run, ri) => {
+	(data?.promptRuns || []).forEach((pr, pi) => {
+		(pr.runs || []).forEach((run, ri) => {
 			const promptId = `prompt-${pi + 1}`;
-			simpleRuns.push({ promptId, brandMentioned: run.brandMentioned, competitorsMentioned: run.competitorsMentioned });
+			simpleRuns.push({ promptId, brandMentioned: run.brandMentioned, competitorsMentioned: run.competitorsMentioned || [] });
 			fullRuns.push({
-				promptId, promptValue: pr.promptValue,
-				brandMentioned: run.brandMentioned, competitorsMentioned: run.competitorsMentioned,
-				webQueries: run.webQueries || [], textContent: run.textContent || "", model: run.model,
+				promptId, promptValue: pr?.promptValue || "",
+				brandMentioned: run?.brandMentioned || false, competitorsMentioned: run?.competitorsMentioned || [],
+				webQueries: run?.webQueries || [], textContent: run?.textContent || "", model: run?.model || "",
 			});
 			chartRuns.push({
 				id: `run-${pi}-${ri}`, promptId, brandMentioned: run.brandMentioned,
-				competitorsMentioned: run.competitorsMentioned, createdAt: new Date(),
+				competitorsMentioned: run.competitorsMentioned || [], createdAt: new Date(),
 				model: run.model, version: run.version,
 				webSearchEnabled: run.webSearchEnabled, rawOutput: run.rawOutput, webQueries: run.webQueries,
 			});
@@ -160,11 +168,11 @@ function ReportRenderPage() {
 	});
 
 	// Deduplicate competitors by name (case-insensitive) and filter out brand
-	const brandNameLower = report.brandName.toLowerCase().trim();
-	const isBrandName = (name: string) => name.toLowerCase().trim() === brandNameLower;
+	const brandNameLower = (report.brandName || "").toLowerCase().trim();
+	const isBrandName = (name: string) => (name || "").toLowerCase().trim() === brandNameLower;
 	const seenCompetitorNames = new Set<string>();
-	const filteredCompetitors = data.competitors.filter((c) => {
-		const key = c.name.toLowerCase().trim();
+	const filteredCompetitors = (data?.competitors || []).filter((c) => {
+		const key = (c?.name || "").toLowerCase().trim();
 		if (isBrandName(c.name) || seenCompetitorNames.has(key)) return false;
 		seenCompetitorNames.add(key);
 		return true;
@@ -194,7 +202,7 @@ function ReportRenderPage() {
 	const queryCompetitorMap = new Map<string, { brandMentioned: boolean; competitorCount: number }>();
 	for (const run of fullRuns) {
 		for (const query of (run.webQueries || [])) {
-			const normalized = query.toLowerCase().trim();
+			const normalized = (query || "").toLowerCase().trim();
 			if (!normalized || normalized.length < 3) continue;
 			const existing = queryCompetitorMap.get(normalized);
 			const compCount = run.competitorsMentioned.length;
@@ -257,7 +265,7 @@ function ReportRenderPage() {
 				<div className="flex items-center justify-between mb-16">
 					<Logo iconClassName="!size-5" textClassName="text-sm font-semibold text-slate-400" />
 					<span className="text-xs tracking-wide text-slate-400">
-						{new Date(report.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+						{formatDateTime(report.createdAt, { year: "numeric", month: "long", day: "numeric" })}
 					</span>
 				</div>
 

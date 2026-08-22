@@ -1,7 +1,7 @@
 import { db } from "@workspace/lib/db/db";
 import { prompts, brands } from "@workspace/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { getDefaultDelayHours } from "@workspace/lib/constants";
+import { eq, sql } from "drizzle-orm";
+import { FIRST_RUN_JOB_PRIORITY, getDefaultDelayHours, PROCESS_PROMPT_JOB_POLICY } from "@workspace/lib/constants";
 import { getBoss } from "@/lib/boss-client";
 
 /**
@@ -76,17 +76,17 @@ export async function createPromptJobScheduler(
 		}
 
 		if (sendImmediate) {
-			// Send an immediate job
+			// Send an immediate job. Every caller of this branch is creating a prompt
+			// or re-arming one by hand, so it is a first run — see
+			// FIRST_RUN_JOB_PRIORITY for why those skip the backlog.
 			await boss.send(
 				"process-prompt",
 				{ promptId, cadenceHours },
 				{
 					singletonKey: `prompt-${promptId}`,
 					singletonSeconds: 60 * 60, // 1 hour - prevent duplicate jobs
-					retryLimit: 3,
-					retryDelay: 60,
-					retryBackoff: true,
-					expireInSeconds: 60 * 15, // 15 minute timeout
+					priority: FIRST_RUN_JOB_PRIORITY,
+					...PROCESS_PROMPT_JOB_POLICY,
 				},
 			);
 		} else {
@@ -99,10 +99,7 @@ export async function createPromptJobScheduler(
 					singletonKey: `prompt-${promptId}`,
 					singletonSeconds: startAfterSeconds, // Prevent duplicates for the cadence period
 					startAfter: startAfterSeconds,
-					retryLimit: 3,
-					retryDelay: 60,
-					retryBackoff: true,
-					expireInSeconds: 60 * 15,
+					...PROCESS_PROMPT_JOB_POLICY,
 				},
 			);
 		}
@@ -112,6 +109,36 @@ export async function createPromptJobScheduler(
 	} catch (error) {
 		console.error(`Failed to create job for prompt ${promptId}:`, error);
 		return false;
+	}
+}
+
+/**
+ * Drops queued `process-prompt` jobs for the given prompts.
+ *
+ * pg-boss can only delete by job id, and jobs are keyed to a prompt through
+ * their payload, so this matches on `data->>'promptId'` directly. Only waiting
+ * jobs are removed: an `active` row belongs to a worker that is already mid-run
+ * and deleting it would not stop the run.
+ *
+ * Without this a deleted prompt keeps its queued job, which wakes up, finds no
+ * prompt and exits — harmless on its own, but the same job left behind by a
+ * *disabled* prompt is what the scheduler reschedules forever.
+ */
+async function deleteQueuedPromptJobs(promptIds: string[]): Promise<void> {
+	if (promptIds.length === 0) return;
+	try {
+		await db.execute(sql`
+			DELETE FROM pgboss.job
+			WHERE name = 'process-prompt'
+			  AND state IN ('created', 'retry')
+			  AND data->>'promptId' IN (${sql.join(
+					promptIds.map((id) => sql`${id}`),
+					sql`, `,
+				)})
+		`);
+	} catch (error) {
+		// pgboss.job is absent until the worker has started once.
+		console.error("Failed to delete queued prompt jobs:", error);
 	}
 }
 
@@ -129,15 +156,44 @@ export async function removePromptJobScheduler(promptId: string): Promise<boolea
 			// Ignore - may not exist
 		}
 
-		// Cancel any pending jobs for this prompt
-		// Note: pg-boss doesn't have a direct way to cancel by data, 
-		// but the singletonKey prevents duplicates
+		await deleteQueuedPromptJobs([promptId]);
 		console.log(`Removed schedule for prompt ${promptId}`);
 		return true;
 	} catch (error) {
 		console.error(`Failed to remove job scheduler for prompt ${promptId}:`, error);
 		return false;
 	}
+}
+
+/**
+ * Removes queued work for every prompt of a brand that is being deleted.
+ *
+ * Both statements cover the whole brand at once rather than looping
+ * `removePromptJobScheduler`: this runs inline in the delete request, and
+ * `boss.unschedule()` is a single-row DELETE, so a brand with hundreds of
+ * prompts would otherwise pay hundreds of round trips against a connection pool
+ * far smaller than that.
+ */
+export async function removeBrandJobSchedulers(promptIds: string[]): Promise<void> {
+	if (promptIds.length === 0) return;
+	try {
+		// Mirrors pg-boss's own `unschedule` statement, which takes one key at a
+		// time. Only legacy cron schedules land here — current prompts are driven
+		// by self-rescheduling jobs — so this is usually a no-op.
+		await db.execute(sql`
+			DELETE FROM pgboss.schedule
+			WHERE name = 'process-prompt'
+			  AND COALESCE(key, '') IN (${sql.join(
+					promptIds.map((id) => sql`${id}`),
+					sql`, `,
+				)})
+		`);
+	} catch (error) {
+		// pgboss.schedule is absent until the worker has started once.
+		console.error("Failed to delete prompt schedules:", error);
+	}
+	await deleteQueuedPromptJobs(promptIds);
+	console.log(`Removed queued jobs for ${promptIds.length} prompts`);
 }
 
 /**
@@ -197,10 +253,10 @@ export async function sendImmediatePromptJob(promptId: string): Promise<boolean>
 			"process-prompt",
 			{ promptId, cadenceHours },
 			{
-				retryLimit: 3,
-				retryDelay: 60,
-				retryBackoff: true,
-				expireInSeconds: 60 * 15,
+				// Someone is watching this one run, so it does not wait behind the
+				// scheduled backlog.
+				priority: FIRST_RUN_JOB_PRIORITY,
+				...PROCESS_PROMPT_JOB_POLICY,
 			},
 		);
 
@@ -228,10 +284,7 @@ export async function scheduleNextPromptRun(promptId: string, cadenceHours: numb
 				singletonKey: `prompt-${promptId}`,
 				singletonSeconds: startAfterSeconds, // Prevent duplicates for the cadence period
 				startAfter: startAfterSeconds,
-				retryLimit: 3,
-				retryDelay: 60,
-				retryBackoff: true,
-				expireInSeconds: 60 * 15,
+				...PROCESS_PROMPT_JOB_POLICY,
 			},
 		);
 

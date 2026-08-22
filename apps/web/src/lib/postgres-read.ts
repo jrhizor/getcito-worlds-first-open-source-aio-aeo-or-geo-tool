@@ -7,6 +7,7 @@
 
 import { type SQL, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import {
 	UNAVAILABLE_SENTINEL,
 	type FanoutBreakdownRow,
@@ -1160,7 +1161,7 @@ export async function getBatchChartData(
 export async function getAdminRunsOverTime(): Promise<AdminRunsOverTime[]> {
 	const rows = await queryPg<AdminRunsOverTime>(sql`
 		SELECT
-			(created_at AT TIME ZONE 'UTC')::date AS date,
+			(created_at AT TIME ZONE ${APP_TIMEZONE})::date AS date,
 			count(*)::int AS count
 		FROM prompt_runs
 		WHERE created_at >= now() - interval '30 days'
@@ -1191,13 +1192,13 @@ export async function getAdminActiveBrandsOverTime(): Promise<AdminActiveBrandsO
 		FROM (
 			SELECT
 				brand_id,
-				(created_at AT TIME ZONE 'UTC')::date + d AS target_date
+				(created_at AT TIME ZONE ${APP_TIMEZONE})::date + d AS target_date
 			FROM prompt_runs,
 				generate_series(0, 29) AS d
 			WHERE created_at >= now() - interval '60 days'
 		) expanded
-		WHERE target_date >= current_date - 30
-			AND target_date <= current_date
+		WHERE target_date >= (now() AT TIME ZONE ${APP_TIMEZONE})::date - 30
+			AND target_date <= (now() AT TIME ZONE ${APP_TIMEZONE})::date
 		GROUP BY target_date
 		ORDER BY target_date
 	`);

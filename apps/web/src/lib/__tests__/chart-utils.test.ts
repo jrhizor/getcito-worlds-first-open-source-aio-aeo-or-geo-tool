@@ -1,11 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-	citationDateWindow,
 	applyPerPromptKeyedLVCF,
+	citationDateWindow,
+	coerceLookbackPeriod,
+	generateDateRange,
 	getDaysFromLookback,
 	getDefaultLookbackPeriod,
-	generateDateRange,
 	type LookbackPeriod,
+	parseCustomLookback,
+	runWeightedVisibility,
 } from "@/lib/chart-utils";
 import { toRoundedPercentages } from "@/lib/domain-categories";
 
@@ -19,6 +22,55 @@ describe("getDaysFromLookback", () => {
 		["all", 365 * 2],
 	])("maps %s to %i days", (lookback, days) => {
 		expect(getDaysFromLookback(lookback)).toBe(days);
+	});
+});
+
+describe("custom lookback ranges", () => {
+	it("parses a well-formed range", () => {
+		expect(parseCustomLookback("custom:2026-01-01:2026-01-31")).toEqual({ from: "2026-01-01", to: "2026-01-31" });
+	});
+
+	it.each([
+		["a preset", "1m"],
+		["a reversed range", "custom:2026-01-31:2026-01-01"],
+		["a date that doesn't exist", "custom:2026-02-31:2026-03-01"],
+		["a malformed date", "custom:2026-1-1:2026-01-31"],
+		["a missing end", "custom:2026-01-01"],
+	])("rejects %s", (_label, value) => {
+		expect(parseCustomLookback(value)).toBeNull();
+	});
+
+	it("counts days inclusively on both ends", () => {
+		expect(getDaysFromLookback("custom:2026-01-01:2026-01-31")).toBe(31);
+		expect(getDaysFromLookback("custom:2026-01-01:2026-01-01")).toBe(1);
+	});
+
+	it("falls back to the default window for a malformed range", () => {
+		expect(getDaysFromLookback("custom:2026-01-31:2026-01-01")).toBe(30);
+	});
+
+	it("keeps valid values and replaces invalid ones with the fallback", () => {
+		expect(coerceLookbackPeriod("custom:2026-01-01:2026-01-31")).toBe("custom:2026-01-01:2026-01-31");
+		expect(coerceLookbackPeriod("3m")).toBe("3m");
+		expect(coerceLookbackPeriod("custom:nonsense", "1w")).toBe("1w");
+		expect(coerceLookbackPeriod(undefined, "1w")).toBe("1w");
+	});
+});
+
+describe("runWeightedVisibility", () => {
+	it("returns the share of runs that mentioned the brand", () => {
+		expect(runWeightedVisibility(3, 4)).toBe(75);
+		expect(runWeightedVisibility(0, 10)).toBe(0);
+		expect(runWeightedVisibility(10, 10)).toBe(100);
+	});
+
+	it("weights by runs rather than averaging daily percentages", () => {
+		// Day 1: 1/1 = 100%. Day 2: 0/49 = 0%. A daily average would say 50%.
+		expect(runWeightedVisibility(1, 50)).toBe(2);
+	});
+
+	it("returns null when there were no runs", () => {
+		expect(runWeightedVisibility(0, 0)).toBeNull();
 	});
 });
 
@@ -65,7 +117,13 @@ describe("citationDateWindow", () => {
 		expect(w.toDateStr).toBe("2026-06-09");
 		expect(w.fromDateStr).toBe("2026-06-03"); // 7 days inclusive of today
 		expect(w.dateRange).toEqual([
-			"2026-06-03", "2026-06-04", "2026-06-05", "2026-06-06", "2026-06-07", "2026-06-08", "2026-06-09",
+			"2026-06-03",
+			"2026-06-04",
+			"2026-06-05",
+			"2026-06-06",
+			"2026-06-07",
+			"2026-06-08",
+			"2026-06-09",
 		]);
 		expect(w.dateRange).toHaveLength(7);
 		// previous window: same length, ends the day before the current window starts (no gap, no overlap)

@@ -1,6 +1,7 @@
 import * as client from "dataforseo-client";
 import { WEB_QUERIES_UNAVAILABLE } from "../../constants";
 import { DATAFORSEO_LANGUAGES } from "../../languages";
+import { isDataforseoLocation } from "../../locations";
 import {
 	extractCitationsFromDataforseoLlm,
 	extractCitationsFromGoogle,
@@ -87,14 +88,17 @@ const LLM_CALLS = {
 async function runGoogleAiMode(prompt: string, options?: ProviderOptions): Promise<ScrapeResult> {
 	assertPromptLength(prompt);
 	const api = createDfsSerpApi();
-	
+
 	const requestConfig: any = {
 		keyword: prompt,
 		language_code: "en",
 		depth: 10,
 	};
-	
-	if (options?.targetMarket) {
+
+	// Brands can target any country BrightData proxies, which is a superset of
+	// DataForSEO's location names — fall back to the US default rather than send
+	// a name their API rejects.
+	if (options?.targetMarket && isDataforseoLocation(options.targetMarket)) {
 		requestConfig.location_name = options.targetMarket;
 	} else {
 		requestConfig.location_code = 2840;
@@ -106,7 +110,7 @@ async function runGoogleAiMode(prompt: string, options?: ProviderOptions): Promi
 			requestConfig.language_code = langCode;
 		}
 	}
-	
+
 	const requestInfo = new client.SerpGoogleAiModeLiveAdvancedRequestInfo(requestConfig);
 
 	const response = await api.googleAiModeLiveAdvanced([requestInfo]);
@@ -196,8 +200,8 @@ async function runLlmResponse(model: string, prompt: string, options?: ProviderO
 		model_name: modelName,
 		web_search: webSearch,
 	};
-	
-	if (options?.targetMarket) {
+
+	if (options?.targetMarket && isDataforseoLocation(options.targetMarket)) {
 		// Pass the target market string (e.g. "United Kingdom") directly.
 		// DataForSEO's LLM Scraper endpoints (Google, ChatGPT, Gemini, etc.)
 		// all support this via the location_name parameter.

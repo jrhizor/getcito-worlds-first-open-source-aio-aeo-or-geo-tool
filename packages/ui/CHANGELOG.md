@@ -1,5 +1,11 @@
 # @workspace/ui
 
+## 9.1.0
+
+### Patch Changes
+
+- Removed the unused calendar component dependency.
+
 ## 0.2.14
 
 ## 0.2.13

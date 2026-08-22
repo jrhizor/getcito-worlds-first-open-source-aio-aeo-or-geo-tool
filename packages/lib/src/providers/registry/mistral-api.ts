@@ -7,6 +7,7 @@ import type {
 	StructuredResearchResult,
 } from "../types";
 import type { Citation } from "../../text-extraction";
+import { localeSystemMessages, localeSystemPrompt } from "../locale";
 
 const MISTRAL_BASE_URL = "https://api.mistral.ai";
 const DEFAULT_MODEL = "mistral-medium-latest";
@@ -89,11 +90,16 @@ export const mistralApi: Provider = {
 	async run(model: string, prompt: string, options?: ProviderOptions): Promise<ScrapeResult> {
 		const version = options?.version ?? DEFAULT_MODEL;
 
+		const locale = localeSystemPrompt(options);
+
 		if (options?.webSearch) {
+			// The conversations endpoint takes the system prompt as `instructions`
+			// rather than a system message in `inputs`.
 			const data = await mistralPost("/v1/conversations", {
 				model: version,
 				inputs: prompt,
 				tools: [{ type: "web_search" }],
+				...(locale ? { instructions: locale } : {}),
 			});
 			const parsed = parseConversationsResponse(data);
 			return { ...parsed, rawOutput: data, modelVersion: data?.model ?? version };
@@ -101,7 +107,7 @@ export const mistralApi: Provider = {
 
 		const data = await mistralPost("/v1/chat/completions", {
 			model: version,
-			messages: [{ role: "user", content: prompt }],
+			messages: [...localeSystemMessages(options), { role: "user", content: prompt }],
 		});
 		return {
 			rawOutput: data,

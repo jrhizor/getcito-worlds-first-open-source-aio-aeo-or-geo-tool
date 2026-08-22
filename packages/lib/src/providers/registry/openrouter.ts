@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import type { Citation } from "../../text-extraction";
 import { WEB_QUERIES_UNAVAILABLE } from "../../constants";
+import { localeSystemMessages } from "../locale";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_API_URL = `${OPENROUTER_BASE_URL}/chat/completions`;
@@ -147,13 +148,7 @@ export const openrouter: Provider = {
 			},
 			body: JSON.stringify({
 				model: modelSlug,
-				messages: [
-					{ 
-						role: "system", 
-						content: `Please provide your response in language: ${options?.targetLanguage ?? "en"}. Assume the user's location is: ${options?.targetMarket ?? "US"}.`
-					},
-					{ role: "user", content: prompt }
-				],
+				messages: [...localeSystemMessages(options), { role: "user", content: prompt }],
 			}),
 		});
 

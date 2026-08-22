@@ -6,6 +6,7 @@
  */
 import { useEffect } from "react";
 import { createFileRoute, Link, useRouteContext } from "@tanstack/react-router";
+import { formatDateTime } from "@/lib/app-locale";
 import { getAppName, getBrandName, buildTitle } from "@/lib/route-head";
 import {
 	IconArrowRight,
@@ -71,7 +72,7 @@ function formatRelativeTime(dateString: string | null): string {
 	if (diffHours < 24) return `${diffHours}h ago`;
 	if (diffDays < 7) return `${diffDays}d ago`;
 
-	return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+	return formatDateTime(date, { month: "short", day: "numeric" });
 }
 
 function formatRunFrequency(hours: number): string {
@@ -468,7 +469,7 @@ function DashboardPage() {
 									label="last updated"
 									value={formatRelativeTime(lastUpdatedAt)}
 									tooltip={lastUpdatedAt
-										? `The last prompts we evaluated for your brand were run on ${new Date(lastUpdatedAt).toLocaleString()}`
+										? `The last prompts we evaluated for your brand were run on ${formatDateTime(lastUpdatedAt)}`
 										: "No evaluations have been run yet."
 									}
 								/>

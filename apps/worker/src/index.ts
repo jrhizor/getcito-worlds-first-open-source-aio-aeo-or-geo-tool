@@ -1,5 +1,8 @@
 import * as Sentry from "@sentry/node";
+import { PROCESS_PROMPT_JOB_POLICY } from "@workspace/lib/constants";
+import { db } from "@workspace/lib/db/db";
 import { getProvider, parseScrapeTargets, validateScrapeTargets } from "@workspace/lib/providers";
+import { sql } from "drizzle-orm";
 import boss from "./boss";
 import { registerHandlers } from "./handlers";
 import { shutdownTelemetry } from "./telemetry";
@@ -32,38 +35,59 @@ async function main() {
 	await boss.start();
 	console.log("pg-boss started");
 
-	// Create queues if they don't exist (required in pg-boss v12)
-	await boss.createQueue("process-prompt", {
-		retryLimit: 3,
-		retryDelay: 60,
-		retryBackoff: true,
-		expireInSeconds: 60 * 15, // 15 minute timeout
-	});
-	await boss.createQueue("generate-report", {
-		retryLimit: 3,
-		retryDelay: 60,
-		retryBackoff: true,
-		expireInSeconds: 60 * 60, // 1 hour timeout for reports
-	});
-	await boss.createQueue("analyze-brand", {
-		retryLimit: 1,
-		retryDelay: 10,
-		retryBackoff: false,
-		expireInSeconds: 60 * 15, // 15 minute timeout for onboarding brand analysis
-	});
-	await boss.createQueue("schedule-maintenance", {
-		retryLimit: 3,
-		retryDelay: 300, // 5 minutes between retries
-		retryBackoff: true,
-		expireInSeconds: 60 * 30, // 30 minute timeout
-	});
-	if (process.env.DEPLOYMENT_MODE === "whitelabel") {
-		await boss.createQueue("sync-auth0-memberships", {
+	// Queues are created if absent (required in pg-boss v12) and then reconciled,
+	// because `createQueue` is ON CONFLICT DO NOTHING and v12's `updateQueue`
+	// only covers dead-letter settings. Without the reconcile, editing anything
+	// below has no effect on a database where the queue already exists: the old
+	// values silently persist and the change looks applied but isn't.
+	const queueOptions = [
+		// Shared with the web app and the maintenance job, which enqueue the same
+		// queue with per-job options that would otherwise override this.
+		{ name: "process-prompt", ...PROCESS_PROMPT_JOB_POLICY },
+		{
+			name: "generate-report",
 			retryLimit: 3,
 			retryDelay: 60,
 			retryBackoff: true,
-			expireInSeconds: 60 * 10,
-		});
+			expireInSeconds: 60 * 60, // 1 hour timeout for reports
+		},
+		{
+			name: "analyze-brand",
+			retryLimit: 1,
+			retryDelay: 10,
+			retryBackoff: false,
+			expireInSeconds: 60 * 15, // 15 minute timeout for onboarding brand analysis
+		},
+		{
+			name: "schedule-maintenance",
+			retryLimit: 3,
+			retryDelay: 300, // 5 minutes between retries
+			retryBackoff: true,
+			expireInSeconds: 60 * 30, // 30 minute timeout
+		},
+		...(process.env.DEPLOYMENT_MODE === "whitelabel"
+			? [
+					{
+						name: "sync-auth0-memberships",
+						retryLimit: 3,
+						retryDelay: 60,
+						retryBackoff: true,
+						expireInSeconds: 60 * 10,
+					},
+				]
+			: []),
+	];
+
+	for (const { name, ...options } of queueOptions) {
+		await boss.createQueue(name, options);
+		await db.execute(sql`
+			UPDATE pgboss.queue
+			SET retry_limit = ${options.retryLimit},
+			    retry_delay = ${options.retryDelay},
+			    retry_backoff = ${options.retryBackoff},
+			    expire_seconds = ${options.expireInSeconds}
+			WHERE name = ${name}
+		`);
 	}
 	console.log("Queues created");
 

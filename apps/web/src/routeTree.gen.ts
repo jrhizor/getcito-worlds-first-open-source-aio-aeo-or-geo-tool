@@ -27,7 +27,9 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AuthedAppNewRouteImport } from './routes/_authed/app/new'
 import { Route as AuthedAppBrandRouteImport } from './routes/_authed/app/$brand'
 import { Route as AuthedAdminWorkflowsRouteImport } from './routes/_authed/admin/workflows'
+import { Route as AuthedAdminUsageRouteImport } from './routes/_authed/admin/usage'
 import { Route as AuthedAdminToolsRouteImport } from './routes/_authed/admin/tools'
+import { Route as AuthedAdminQueueRouteImport } from './routes/_authed/admin/queue'
 import { Route as ApiV1ReportsIndexRouteImport } from './routes/api/v1/reports/index'
 import { Route as ApiV1PromptsIndexRouteImport } from './routes/api/v1/prompts/index'
 import { Route as ApiV1DocsIndexRouteImport } from './routes/api/v1/docs/index'
@@ -147,9 +149,19 @@ const AuthedAdminWorkflowsRoute = AuthedAdminWorkflowsRouteImport.update({
   path: '/workflows',
   getParentRoute: () => AuthedAdminRoute,
 } as any)
+const AuthedAdminUsageRoute = AuthedAdminUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => AuthedAdminRoute,
+} as any)
 const AuthedAdminToolsRoute = AuthedAdminToolsRouteImport.update({
   id: '/tools',
   path: '/tools',
+  getParentRoute: () => AuthedAdminRoute,
+} as any)
+const AuthedAdminQueueRoute = AuthedAdminQueueRouteImport.update({
+  id: '/queue',
+  path: '/queue',
   getParentRoute: () => AuthedAdminRoute,
 } as any)
 const ApiV1ReportsIndexRoute = ApiV1ReportsIndexRouteImport.update({
@@ -322,7 +334,9 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/admin/queue': typeof AuthedAdminQueueRoute
   '/admin/tools': typeof AuthedAdminToolsRoute
+  '/admin/usage': typeof AuthedAdminUsageRoute
   '/admin/workflows': typeof AuthedAdminWorkflowsRoute
   '/app/$brand': typeof AuthedAppBrandRouteWithChildren
   '/app/new': typeof AuthedAppNewRoute
@@ -368,7 +382,9 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/admin/queue': typeof AuthedAdminQueueRoute
   '/admin/tools': typeof AuthedAdminToolsRoute
+  '/admin/usage': typeof AuthedAdminUsageRoute
   '/admin/workflows': typeof AuthedAdminWorkflowsRoute
   '/app/new': typeof AuthedAppNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -418,7 +434,9 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/auth/register': typeof AuthRegisterRoute
+  '/_authed/admin/queue': typeof AuthedAdminQueueRoute
   '/_authed/admin/tools': typeof AuthedAdminToolsRoute
+  '/_authed/admin/usage': typeof AuthedAdminUsageRoute
   '/_authed/admin/workflows': typeof AuthedAdminWorkflowsRoute
   '/_authed/app/$brand': typeof AuthedAppBrandRouteWithChildren
   '/_authed/app/new': typeof AuthedAppNewRoute
@@ -469,7 +487,9 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/logout'
     | '/auth/register'
+    | '/admin/queue'
     | '/admin/tools'
+    | '/admin/usage'
     | '/admin/workflows'
     | '/app/$brand'
     | '/app/new'
@@ -515,7 +535,9 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/logout'
     | '/auth/register'
+    | '/admin/queue'
     | '/admin/tools'
+    | '/admin/usage'
     | '/admin/workflows'
     | '/app/new'
     | '/api/auth/$'
@@ -564,7 +586,9 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/logout'
     | '/auth/register'
+    | '/_authed/admin/queue'
     | '/_authed/admin/tools'
+    | '/_authed/admin/usage'
     | '/_authed/admin/workflows'
     | '/_authed/app/$brand'
     | '/_authed/app/new'
@@ -758,11 +782,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAdminWorkflowsRouteImport
       parentRoute: typeof AuthedAdminRoute
     }
+    '/_authed/admin/usage': {
+      id: '/_authed/admin/usage'
+      path: '/usage'
+      fullPath: '/admin/usage'
+      preLoaderRoute: typeof AuthedAdminUsageRouteImport
+      parentRoute: typeof AuthedAdminRoute
+    }
     '/_authed/admin/tools': {
       id: '/_authed/admin/tools'
       path: '/tools'
       fullPath: '/admin/tools'
       preLoaderRoute: typeof AuthedAdminToolsRouteImport
+      parentRoute: typeof AuthedAdminRoute
+    }
+    '/_authed/admin/queue': {
+      id: '/_authed/admin/queue'
+      path: '/queue'
+      fullPath: '/admin/queue'
+      preLoaderRoute: typeof AuthedAdminQueueRouteImport
       parentRoute: typeof AuthedAdminRoute
     }
     '/api/v1/reports/': {
@@ -972,13 +1010,17 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthedAdminRouteChildren {
+  AuthedAdminQueueRoute: typeof AuthedAdminQueueRoute
   AuthedAdminToolsRoute: typeof AuthedAdminToolsRoute
+  AuthedAdminUsageRoute: typeof AuthedAdminUsageRoute
   AuthedAdminWorkflowsRoute: typeof AuthedAdminWorkflowsRoute
   AuthedAdminIndexRoute: typeof AuthedAdminIndexRoute
 }
 
 const AuthedAdminRouteChildren: AuthedAdminRouteChildren = {
+  AuthedAdminQueueRoute: AuthedAdminQueueRoute,
   AuthedAdminToolsRoute: AuthedAdminToolsRoute,
+  AuthedAdminUsageRoute: AuthedAdminUsageRoute,
   AuthedAdminWorkflowsRoute: AuthedAdminWorkflowsRoute,
   AuthedAdminIndexRoute: AuthedAdminIndexRoute,
 }

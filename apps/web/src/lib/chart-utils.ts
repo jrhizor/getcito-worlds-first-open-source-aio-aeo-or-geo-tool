@@ -1,18 +1,67 @@
-import type { PerPromptVisibilityPoint, PerPromptDailyCitationStats } from "@/lib/postgres-read";
 import { getDefaultDelayHours } from "@workspace/lib/constants";
-import { type CitationCategory, CITATION_CATEGORIES } from "@/lib/domain-categories";
+import { APP_TIMEZONE } from "@/lib/app-locale";
+import { CITATION_CATEGORIES, type CitationCategory } from "@/lib/domain-categories";
+import type { PerPromptDailyCitationStats, PerPromptVisibilityPoint } from "@/lib/postgres-read";
 
-export type LookbackPeriod = "1w" | "1m" | "3m" | "6m" | "1y" | "all";
+/** A user-picked date window, encoded into the same `lookback` string the presets use
+ *  (e.g. `custom:2026-01-01:2026-01-31`). Keeping it in one param means every URL
+ *  search key, react-query key and server-function validator that already threads a
+ *  lookback around supports custom ranges without new plumbing. */
+export type CustomLookbackPeriod = `custom:${string}:${string}`;
+export type LookbackPeriod = "1w" | "1m" | "3m" | "6m" | "1y" | "all" | CustomLookbackPeriod;
+
+const PRESET_LOOKBACKS = ["1w", "1m", "3m", "6m", "1y", "all"] as const;
+const CUSTOM_LOOKBACK_RE = /^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/;
+
+/** True only for a real calendar date — `2026-02-31` matches the regex but isn't one. */
+function isRealDate(dateStr: string): boolean {
+	const date = new Date(`${dateStr}T00:00:00Z`);
+	return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === dateStr;
+}
+
+export function formatCustomLookback(from: string, to: string): CustomLookbackPeriod {
+	return `custom:${from}:${to}`;
+}
+
+/**
+ * Inclusive `YYYY-MM-DD` bounds of a custom lookback, or null when the value is a
+ * preset or is malformed (unparseable dates, or `from` after `to`). Callers treat
+ * null as "not a custom range" and fall through to the preset handling, so a
+ * hand-edited URL degrades to the default window instead of querying garbage.
+ */
+export function parseCustomLookback(lookback: string): { from: string; to: string } | null {
+	const match = CUSTOM_LOOKBACK_RE.exec(lookback);
+	if (!match) return null;
+	const [, from, to] = match;
+	if (!isRealDate(from) || !isRealDate(to) || from > to) return null;
+	return { from, to };
+}
+
+/**
+ * End of the window for the `days`-based endpoints. Those windows normally end
+ * "now"; a custom lookback ends on its own last day instead, which callers pass as
+ * `endDate` (`YYYY-MM-DD`). An unparseable value falls back to now.
+ */
+export function resolveWindowEnd(endDate?: string | null): Date {
+	return endDate && isRealDate(endDate) ? new Date(`${endDate}T23:59:59.999Z`) : new Date();
+}
+
+/** Validate an untrusted lookback (URL search param, server-function input). */
+export function coerceLookbackPeriod(raw: unknown, fallback: LookbackPeriod = "1m"): LookbackPeriod {
+	if (typeof raw !== "string") return fallback;
+	if ((PRESET_LOOKBACKS as readonly string[]).includes(raw)) return raw as LookbackPeriod;
+	return parseCustomLookback(raw) ? (raw as CustomLookbackPeriod) : fallback;
+}
 
 /**
  * Determines the default lookback period based on the brand's data history.
  * Returns "1m" (1 month) if the brand has more than 1 week of data or if data hasn't loaded yet,
  * otherwise returns "1w" (1 week) for new brands with less than a week of data.
- * 
+ *
  * Note: We default to "1m" when data is unavailable because most established brands
  * have more than a week of data, and this prevents inconsistent defaults when brand
  * data loads asynchronously (which was causing chart type mismatches downstream).
- * 
+ *
  * @param earliestDataDate - ISO date string of the earliest data point, or null if no data
  * @returns The recommended default lookback period
  */
@@ -34,6 +83,12 @@ export function getDefaultLookbackPeriod(earliestDataDate: string | null | undef
 }
 
 export function getDaysFromLookback(lookback: LookbackPeriod): number {
+	const custom = parseCustomLookback(lookback);
+	if (custom) {
+		const spanMs = Date.parse(`${custom.to}T00:00:00Z`) - Date.parse(`${custom.from}T00:00:00Z`);
+		return Math.round(spanMs / 86_400_000) + 1; // inclusive of both end dates
+	}
+
 	switch (lookback) {
 		case "1w":
 			return 7;
@@ -47,6 +102,8 @@ export function getDaysFromLookback(lookback: LookbackPeriod): number {
 			return 365;
 		case "all":
 			return 365 * 2; // 2 years for "all"
+		default:
+			return 30; // malformed custom range - behave like the default lookback
 	}
 }
 
@@ -86,7 +143,13 @@ export function citationDateWindow(
 	const prevFrom = shift(prevTo, -(span - 1));
 	const dateRange: string[] = [];
 	for (let i = 0; i < span; i++) dateRange.push(iso(shift(from, i)));
-	return { fromDateStr: iso(from), toDateStr: iso(today), prevFromDateStr: iso(prevFrom), prevToDateStr: iso(prevTo), dateRange };
+	return {
+		fromDateStr: iso(from),
+		toDateStr: iso(today),
+		prevFromDateStr: iso(prevFrom),
+		prevToDateStr: iso(prevTo),
+		dateRange,
+	};
 }
 
 // ============================================================================
@@ -238,7 +301,12 @@ export function applyPerPromptCitationLVCF(
 	categorizeDomain: (domain: string) => CitationCategory,
 ): Map<string, CitationCategories> {
 	return applyPerPromptKeyedLVCF(
-		perPromptData.map((r) => ({ prompt_id: r.prompt_id, date: r.date, key: categorizeDomain(r.domain), count: Number(r.count) })),
+		perPromptData.map((r) => ({
+			prompt_id: r.prompt_id,
+			date: r.date,
+			key: categorizeDomain(r.domain),
+			count: Number(r.count),
+		})),
 		dateRange,
 		cadenceHours,
 		CITATION_CATEGORIES,
@@ -251,6 +319,17 @@ export const normalizeToPercentage = (value: number): number => {
 	const roundedPercentage = Math.floor(percentage / 20) * 20;
 	return Math.min(roundedPercentage, 100); // Ensure it never exceeds 100%
 };
+
+/**
+ * Visibility across a whole window: the share of runs that mentioned the brand.
+ * Weighted by runs rather than averaging the daily percentages, so a day with one
+ * run doesn't count as much as a day with fifty — this is the same definition the
+ * page-level visibility bar uses. Null when there were no runs at all.
+ */
+export function runWeightedVisibility(mentionedRuns: number, totalRuns: number): number | null {
+	if (totalRuns <= 0) return null;
+	return Math.round((mentionedRuns / totalRuns) * 100);
+}
 
 export function getBadgeVariant(value: number): "default" | "secondary" | "destructive" {
 	if (value > 75) return "default";
@@ -269,7 +348,7 @@ export interface ChartDataPoint {
 	[key: string]: number | string | boolean | null; // Dynamic keys for brand/competitor IDs and _extended_ flags
 }
 
-import type { PromptRun, Brand, Competitor } from "@workspace/lib/db/schema";
+import type { Brand, Competitor, PromptRun } from "@workspace/lib/db/schema";
 
 /**
  * Calculate visibility percentages for brand vs competitors from prompt runs
@@ -279,12 +358,18 @@ export function calculateVisibilityPercentages(
 	brand: Brand,
 	competitors: Competitor[],
 	lookback: LookbackPeriod,
-	userTimezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone,
+	userTimezone: string = APP_TIMEZONE,
 ): ChartDataPoint[] {
 	let startDate: Date;
 	let endDate: Date;
 
-	if (lookback === "all" && promptRuns.length > 0) {
+	const customRange = parseCustomLookback(lookback);
+
+	if (customRange) {
+		// A custom range carries its own end date, so it doesn't extend to today.
+		startDate = new Date(customRange.from);
+		endDate = new Date(customRange.to);
+	} else if (lookback === "all" && promptRuns.length > 0) {
 		// For "all", use the actual data range from first to last prompt run
 		const sortedRuns = [...promptRuns].sort(
 			(a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -440,16 +525,26 @@ export function filterAndCompleteChartData(chartData: ChartDataPoint[], lookback
 		return chartData;
 	}
 
-	const daysToSubtract = getDaysFromLookback(lookback);
+	const custom = parseCustomLookback(lookback);
 
-	// Use timezone-aware date range to be consistent with calculateVisibilityPercentages
-	const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const now = new Date();
-	const currentDateInTimezone = now.toLocaleDateString("en-CA", { timeZone: userTimezone });
-	const referenceDate = new Date(currentDateInTimezone);
+	let startDate: Date;
+	let referenceDate: Date;
 
-	const startDate = new Date(referenceDate);
-	startDate.setDate(startDate.getDate() - (daysToSubtract - 1));
+	if (custom) {
+		startDate = new Date(custom.from);
+		referenceDate = new Date(custom.to);
+	} else {
+		const daysToSubtract = getDaysFromLookback(lookback);
+
+		// Use timezone-aware date range to be consistent with calculateVisibilityPercentages
+		const userTimezone = APP_TIMEZONE;
+		const now = new Date();
+		const currentDateInTimezone = now.toLocaleDateString("en-CA", { timeZone: userTimezone });
+		referenceDate = new Date(currentDateInTimezone);
+
+		startDate = new Date(referenceDate);
+		startDate.setDate(startDate.getDate() - (daysToSubtract - 1));
+	}
 
 	// Generate complete date range for the lookback period
 	const dateRange = generateDateRange(startDate, referenceDate);
@@ -479,15 +574,12 @@ export function filterAndCompleteChartData(chartData: ChartDataPoint[], lookback
  * to fill the start of the chart, and extends the last non-null value forward
  * to fill the end of the chart. This prevents gaps at the edges of the chart
  * when data collection started mid-period or hasn't been collected yet for recent dates.
- * 
+ *
  * Extended points are marked with `_extended_{key}: true` so the chart can:
  * - Skip rendering dots for extended points
  * - Skip showing extended values in tooltips
  */
-export function extendLinesToChartEdges(
-	chartData: ChartDataPoint[],
-	dataKeys: string[]
-): ChartDataPoint[] {
+export function extendLinesToChartEdges(chartData: ChartDataPoint[], dataKeys: string[]): ChartDataPoint[] {
 	if (chartData.length === 0) return chartData;
 
 	// Deep clone the chart data to avoid mutating the original

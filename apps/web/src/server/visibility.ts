@@ -11,7 +11,9 @@ import { db } from "@workspace/lib/db/db";
 import { brands, competitors } from "@workspace/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { type LookbackPeriod } from "@/lib/chart-utils";
+import { APP_TIMEZONE } from "@/lib/app-locale";
 import { getTimezoneLookbackRange, resolveTimezone } from "@/lib/timezone-utils";
+import { LOOKBACK } from "@/server/analysis";
 import { resolveFilteredPrompts } from "@/server/prompt-resolution";
 import {
 	getBatchChartData,
@@ -63,11 +65,11 @@ export const getBatchChartDataFn = createServerFn({ method: "GET" })
 	.validator(
 		z.object({
 			brandId: z.string(),
-			lookback: z.enum(["1w", "1m", "3m", "6m", "1y", "all"]).default("1m"),
+			lookback: LOOKBACK.default("1m"),
 			model: z.string().optional(),
 			tags: z.string().optional(),
 			search: z.string().optional(),
-			timezone: z.string().default("UTC"),
+			timezone: z.string().default(APP_TIMEZONE),
 		}),
 	)
 	.handler(async ({ data }): Promise<BatchChartDataResponse> => {
@@ -75,7 +77,7 @@ export const getBatchChartDataFn = createServerFn({ method: "GET" })
 		await requireOrgAccess(session.user.id, data.brandId);
 
 		const timezone = resolveTimezone(data.timezone);
-		const lookbackParam = data.lookback as LookbackPeriod;
+		const lookbackParam = data.lookback;
 
 		// `allStrategy: "1y"` guarantees concrete bounds for every lookback
 		// (including "all"), so the dates are never null here.
@@ -147,16 +149,16 @@ export const getFilteredVisibilityFn = createServerFn({ method: "GET" })
 	.validator(
 		z.object({
 			brandId: z.string(),
-			lookback: z.enum(["1w", "1m", "3m", "6m", "1y", "all"]).default("1m"),
+			lookback: LOOKBACK.default("1m"),
 			model: z.string().optional(),
 			tags: z.string().optional(),
 			search: z.string().optional(),
-			timezone: z.string().default("UTC"),
+			timezone: z.string().default(APP_TIMEZONE),
 		}),
 	)
 	.handler(async ({ data }): Promise<FilteredVisibilityResponse> => {
 		const session = await requireAuthSession();
-		const lookbackParam = data.lookback as LookbackPeriod;
+		const lookbackParam = data.lookback;
 
 		await requireOrgAccess(session.user.id, data.brandId);
 

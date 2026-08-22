@@ -9,7 +9,7 @@
  * cross-package type mismatches from different drizzle-orm resolutions.
  */
 import { db } from "./db";
-import { eq, and, ne, inArray } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { organization, member, user, account } from "./schema";
 
 async function uniqueSlug(baseSlug: string, excludeOrgId: string): Promise<string> {
@@ -120,6 +120,17 @@ export async function syncMemberships(
 	});
 
 	return { added, removed };
+}
+
+/** Revokes all organization and privileged access for a user in one transaction. */
+export async function revokeUserAccess(userId: string): Promise<void> {
+	await db.transaction(async (tx) => {
+		await tx.delete(member).where(eq(member.userId, userId));
+		await tx
+			.update(user)
+			.set({ role: "user", hasReportGeneratorAccess: false })
+			.where(eq(user.id, userId));
+	});
 }
 
 /**

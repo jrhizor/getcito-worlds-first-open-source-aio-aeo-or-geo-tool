@@ -1,21 +1,23 @@
-import * as React from "react";
-import { Link } from "@tanstack/react-router";
 import {
-	IconDashboard,
-	IconChartBar,
-	IconSpeakerphone,
-	IconSitemap,
-	IconTarget,
-	IconLink,
 	IconBuilding,
 	IconBuildings,
-	IconListDetails,
+	IconChartBar,
 	IconCpu,
-	IconTable,
+	IconDashboard,
+	IconGauge,
+	IconLink,
+	IconListDetails,
+	IconListNumbers,
 	IconReport,
+	IconSitemap,
+	IconSpeakerphone,
+	IconTable,
+	IconTarget,
 	IconTimeline,
 	IconTool,
 } from "@tabler/icons-react";
+import { Link } from "@tanstack/react-router";
+import type { BrandWithPrompts } from "@workspace/lib/db/schema";
 
 import {
 	Sidebar,
@@ -27,12 +29,12 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@workspace/ui/components/sidebar";
-import { NavMain, type NavGroup } from "@/components/nav-main";
-import { NavUser } from "@/components/nav-user";
-import { NavAppInfo } from "@/components/nav-app-info";
+import type * as React from "react";
 import { DemoModePill } from "@/components/demo-mode-pill";
 import { Logo } from "@/components/logo";
-import type { BrandWithPrompts } from "@workspace/lib/db/schema";
+import { NavAppInfo } from "@/components/nav-app-info";
+import { type NavGroup, NavMain } from "@/components/nav-main";
+import { NavUser } from "@/components/nav-user";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 	isAdmin?: boolean;
@@ -43,7 +45,13 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 	brand?: BrandWithPrompts | null;
 }
 
-export function AppSidebar({ isAdmin = false, hasReportAccess = false, adminOnly = false, brand, ...props }: AppSidebarProps) {
+export function AppSidebar({
+	isAdmin = false,
+	hasReportAccess = false,
+	adminOnly = false,
+	brand,
+	...props
+}: AppSidebarProps) {
 	const { setOpenMobile } = useSidebar();
 
 	const showAdminSection = isAdmin || hasReportAccess;
@@ -147,6 +155,18 @@ export function AppSidebar({ isAdmin = false, hasReportAccess = false, adminOnly
 						absolute: true,
 					},
 					{
+						title: "Queue",
+						url: "/admin/queue",
+						icon: IconListNumbers,
+						absolute: true,
+					},
+					{
+						title: "API Usage",
+						url: "/admin/usage",
+						icon: IconGauge,
+						absolute: true,
+					},
+					{
 						title: "Tools",
 						url: "/admin/tools",
 						icon: IconTool,
@@ -173,14 +193,14 @@ export function AppSidebar({ isAdmin = false, hasReportAccess = false, adminOnly
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-					<SidebarMenuButton size="lg" asChild>
-						<Link to="/app" onClick={() => setOpenMobile(false)}>
-							<Logo iconClassName="!size-5" />
-							<div className="ml-auto group-data-[collapsible=icon]:hidden">
-								<DemoModePill />
-							</div>
-						</Link>
-					</SidebarMenuButton>
+						<SidebarMenuButton size="lg" asChild>
+							<Link to="/app" onClick={() => setOpenMobile(false)}>
+								<Logo iconClassName="!size-5" />
+								<div className="ml-auto group-data-[collapsible=icon]:hidden">
+									<DemoModePill />
+								</div>
+							</Link>
+						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarHeader>
